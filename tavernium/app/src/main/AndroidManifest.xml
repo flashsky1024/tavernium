@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- package / versionCode / versionName / uses-sdk 已移至 app/build.gradle
+         （AGP 8+ 起不再从清单读取，由 namespace 与 defaultConfig 提供） -->
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- 联网更新：下载并拉起系统安装器（API 26+ 仍需用户在设置里单独授权） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"/>
+
+    <!-- allowBackup=false：SharedPreferences 里存着服务器地址、Basic 凭据与登录 Cookie，
+         备份文件落在云端或另一台设备上等于凭据外泄。应用数据只有这些，没有需要备份的内容。
+         usesCleartextTraffic=true：用户自建 SillyTavern 常跑在局域网 http://192.168.x.x:8000，
+         targetSdk 34 默认禁止明文，会导致引导页填 http 后白屏且无任何提示。 -->
+    <application
+        android:theme="@style/Theme.AppCompat.NoActionBar.Fullscreen"
+        android:label="Tavernium"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:usesCleartextTraffic="true"
+        android:roundIcon="@mipmap/ic_launcher">
+
+        <!-- configChanges 自己处理、不重建 Activity：旋转、深色模式切换、分屏/折叠屏展开、
+             键盘/字体缩放变化时，重建会让 WebView 重载、丢掉正在聊的页面状态。
+             配合 MainActivity.onConfigurationChanged 只刷新布局，不重载网页。 -->
+        <activity
+            android:name="wiki.nandflash.tavernkeep.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name="wiki.nandflash.tavernkeep.KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="keep_webview_alive"/>
+        </service>
+
+        <!-- 更新包共享：零依赖版 FileProvider 替代品，只读、不导出、限定 updates 目录 -->
+        <provider
+            android:name="wiki.nandflash.tavernkeep.ApkProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true"/>
+    </application>
+</manifest>

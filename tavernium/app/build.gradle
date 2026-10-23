@@ -1,0 +1,62 @@
+plugins {
+    id 'com.android.application'
+}
+
+// 版本号单一来源：defaultConfig 与 APK 文件名共用，避免两处不一致
+def tkVersionName = '1.8.39'
+
+android {
+    namespace 'wiki.nandflash.tavernkeep'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+
+    defaultConfig {
+        applicationId 'wiki.nandflash.tavernkeep'
+        minSdk 24
+        targetSdk 34
+        versionCode 51
+        versionName tkVersionName
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            // R8 代码压缩/混淆 + 资源压缩（原手工构建缺失的能力）
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // 沙箱内用 debug 密钥签名以便直接安装验证；正式发布必须替换为自有 keystore
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        // lint 告警不阻断构建，报告输出到 app/build/reports/lint-results.html
+        abortOnError false
+    }
+
+    buildFeatures {
+        // 生成 BuildConfig.VERSION_NAME，供 User-Agent 等处引用，避免版本号写死在代码里
+        buildConfig true
+    }
+}
+
+// 本应用零第三方依赖：全部使用 Android 框架 API
+dependencies {
+}
+
+// 产物文件名带版本号，便于区分不同构建：tavernkeep-<variant>-<version>.apk
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.outputs.forEach { output ->
+            output.outputFileName.set("tavernium-${variant.name}-${tkVersionName}.apk")
+        }
+    }
+}

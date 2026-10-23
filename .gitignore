@@ -1,0 +1,39 @@
+# ---- 构建产物 ----
+build/
+.gradle/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# ---- 签名与凭据（绝不入库）----
+*.jks
+*.keystore
+keystore.properties
+.env
+
+# ---- IDE ----
+.idea/
+*.iml
+.vscode/
+captures/
+
+# ---- 本地归档 / 临时 ----
+backup/
+releases/
+verification/out/
+verification/sources.txt
+*.log
+
+# ---- 归档与脱敏产物（不入库）----
+.redist/
+update-site/
+tavermium.bak-*/
+verification.bak-*/
+perf-report-sample.txt
+
+# ---- 测试中间产物 ----
+verification/results/
+verification/stubs/

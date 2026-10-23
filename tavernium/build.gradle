@@ -1,0 +1,4 @@
+// 顶层构建文件：仅声明插件版本，具体配置在 app/build.gradle
+plugins {
+    id 'com.android.application' version '9.4.1' apply false
+}

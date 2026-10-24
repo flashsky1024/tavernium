@@ -210,6 +210,15 @@ cd verification && python3 run_verify.py
 | CPU 架构 | 不限，纯 Java，没有 native 库 |
 | 签名证书 | `CN=Tavernium, O=flashsky1024`，4096 位 RSA，有效期至 2054 年 |
 
+## 致谢
+
+以下两位在 Discord 上帮忙排查问题，并借助 GPT 协助定位与修复了若干 bug：
+
+- **赛博街溜子**
+- **咖喱杯面真好吃**
+
+如果这份名单漏了谁，欢迎提 Issue 提醒补充。
+
 ## 许可
 
 [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html)。用大白话说：

@@ -70,7 +70,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.nio.charset.StandardCharsets;
 
-/* loaded from: classes.dex */
 public class MainActivity extends Activity {
     private static final String TAG = "TavernKeep";
 

@@ -128,7 +128,7 @@ tavernium/
 │   ├── IdleController.java    防烧屏挂机状态机
 │   ├── ReplyNotifier.java     回复完成通知
 │   ├── PerfMonitor.java       帧率/长任务/内存探针
-│   └── ...                    共 10 个文件
+│   └── ...                    共 14 个文件
 └── verification/              离线测试体系（桩 + javac + node）
 ```
 

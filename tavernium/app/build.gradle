@@ -24,6 +24,8 @@ android {
         targetSdk 34
         versionCode 52
         versionName tkVersionName
+        // release 与 debug 用不同 applicationId，两者可同时安装、数据互不干扰
+        manifestPlaceholders = [appLabel: 'Tavernium']
     }
 
     signingConfigs {
@@ -40,6 +42,10 @@ android {
     buildTypes {
         debug {
             minifyEnabled false
+            // 与正式版并存：包名加 .debug 后缀，桌面显示 "Tavernium Dev"
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+            manifestPlaceholders = [appLabel: 'Tavernium Dev']
         }
         release {
             // R8 代码压缩/混淆 + 资源压缩

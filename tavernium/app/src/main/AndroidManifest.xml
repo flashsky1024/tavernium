@@ -22,7 +22,7 @@
          targetSdk 34 默认禁止明文，会导致引导页填 http 后白屏且无任何提示。 -->
     <application
         android:theme="@style/Theme.AppCompat.NoActionBar.Fullscreen"
-        android:label="Tavernium"
+        android:label="${appLabel}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:fullBackupContent="false"

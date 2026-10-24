@@ -1,4 +1,4 @@
-package wiki.nandflash.tavernkeep;
+package io.github.flashsky1024.tavernium;
 
 import android.app.KeyguardManager;
 import android.app.Notification;

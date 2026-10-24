@@ -1,4 +1,4 @@
-package wiki.nandflash.tavernkeep;
+package io.github.flashsky1024.tavernium;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -1172,7 +1172,7 @@ public class CacheManagerTest {
                 BuildConfig.VERSION_NAME.matches("\\d+\\.\\d+\\.\\d+.*"));
         check("VERSION_CODE 已递增（实际 " + BuildConfig.VERSION_CODE + "）",
                 BuildConfig.VERSION_CODE >= 12);
-        eq("APPLICATION_ID", "wiki.nandflash.tavernkeep", BuildConfig.APPLICATION_ID);
+        eq("APPLICATION_ID", "io.github.flashsky1024.tavernium", BuildConfig.APPLICATION_ID);
 
         // User-Agent 用了 BuildConfig.VERSION_NAME，避免版本号写死漂移
         String src = readSource("MainActivity.java");
@@ -1182,7 +1182,7 @@ public class CacheManagerTest {
 
     private static String readSource(String name) {
         java.io.File f = new java.io.File(
-                System.getProperty("tk.appSrc", ""), "app/src/main/java/wiki/nandflash/tavernkeep/" + name);
+                System.getProperty("tk.appSrc", ""), "app/src/main/java/io/github/flashsky1024/tavernium/" + name);
         if (!f.exists()) {
             return null;
         }

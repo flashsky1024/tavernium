@@ -1,4 +1,4 @@
-package wiki.nandflash.tavernkeep;
+package io.github.flashsky1024.tavernium;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -19,7 +19,7 @@ public class KeepAliveService extends Service {
     /** 自重启最小间隔：避免被系统反复杀死时形成紧密重启循环（每次重启都是一轮进程创建开销）。 */
     private static final long MIN_RESTART_INTERVAL_MS = 5000L;
     /** 通知栏「退出」按钮发来的动作：主动停止，不再自重启。 */
-    private static final String ACTION_STOP = "wiki.nandflash.tavernkeep.action.STOP_KEEPALIVE";
+    private static final String ACTION_STOP = "io.github.flashsky1024.tavernium.action.STOP_KEEPALIVE";
 
     private long lastStartElapsed = 0L;
     /** 用户主动点了「退出」：onDestroy/onTaskRemoved 时不再 restartSelf，否则退出按钮形同虚设。 */

@@ -12,7 +12,7 @@ import re
 import sys
 
 CONST = sys.argv[3] if len(sys.argv) > 3 else "FRAME_RATE_HOOK_JS"
-REL = "app/src/main/java/wiki/nandflash/tavernkeep/MainActivity.java"
+REL = "app/src/main/java/io/github/flashsky1024/tavernium/MainActivity.java"
 PATTERN = re.compile(
     r"String\s+" + CONST + r"\s*=\s*\"((?:[^\"\\]|\\.)*)\"\s*;")
 

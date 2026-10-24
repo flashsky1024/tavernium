@@ -1,4 +1,4 @@
-package wiki.nandflash.tavernkeep;
+package io.github.flashsky1024.tavernium;
 
 public final class BridgeSessionTest {
     private static int passed;

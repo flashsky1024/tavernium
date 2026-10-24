@@ -1260,10 +1260,10 @@ _ver_name, _ver_code = read_app_version()
 _build_config = os.path.join(OUT, "wiki", "nandflash", "tavernkeep", "BuildConfig.java")
 os.makedirs(os.path.dirname(_build_config), exist_ok=True)
 with open(_build_config, "w", encoding="utf-8") as f:
-    f.write("""package wiki.nandflash.tavernkeep;
+    f.write("""package io.github.flashsky1024.tavernium;
 public final class BuildConfig {
     public static final boolean DEBUG = false;
-    public static final String APPLICATION_ID = "wiki.nandflash.tavernkeep";
+    public static final String APPLICATION_ID = "io.github.flashsky1024.tavernium";
     public static final int VERSION_CODE = %d;
     public static final String VERSION_NAME = "%s";
 }

@@ -21,13 +21,13 @@
 
 | 项 | 值 |
 |---|---|
-| versionName / versionCode | **1.8.37 / 49** |
-| applicationId | `wiki.nandflash.tavernkeep`（**故意没改名**，见 §5.1） |
+| versionName / versionCode | **2.0.0 / 52** |
+| applicationId | `io.github.flashsky1024.tavernium`（2.0.0 起；旧版为 `wiki.nandflash.tavernkeep`） |
 | 桌面显示名 | `Tavernium` |
-| 签名 | **debug keystore**（`signingConfigs.debug`，P0，见 §5.1） |
+| 签名 | **正式 keystore**（2.0.0 起，4096-bit RSA，见 §5.1） |
 | 更新服务器 | `https://<UPD_HOST>/api/apps/tavernium/releases.json` |
 | 更新包目录 | `<UPD_HOST>/apps/tavernium/`（旧 `apps/tavernkeep/` 仅作回滚，不再更新） |
-| 离线测试 | **388 项全绿**（`verification/run_verify.sh`） |
+| 离线测试 | **535 项全绿**（`verification/run_verify.py`） |
 | 代码规模 | 约 7,160 行 Java，10 个文件 |
 
 ---
@@ -36,15 +36,15 @@
 
 | 文件 | 行数 | 职责 | 风险 |
 |---|---:|---|---|
-| `MainActivity.java` | 3388 | 胶水层：WebView 装配、对话框、下载、JS 桥 | **高**，仍偏大 |
-| `CacheManager.java` | ~1370 | `shouldInterceptRequest` 的磁盘缓存 / 慢主机探测 | 高 |
+| `MainActivity.java` | 3288 | 胶水层：WebView 装配、对话框、下载、JS 桥 | **高**，仍偏大 |
+| `CacheManager.java` | 1373 | `shouldInterceptRequest` 的磁盘缓存 / 慢主机探测 | 高 |
 | `PerfMonitor.java` | ~845 | 帧率/长任务/内存探针与报表 | 中 |
-| `UpdateManager.java` | ~610 | 清单拉取、下载、签名校验、拉起安装器 | **高** |
+| `UpdateManager.java` | 696 | 清单拉取、下载、签名校验、拉起安装器 | **高** |
 | `PerfLog.java` | ~315 | 有界环形日志（4000 行上限） | 低 |
 | `KeepAliveService.java` | ~130 | 前台服务 + 通知 + 自重启 | 中 |
 | `ApkProvider.java` | ~99 | 零依赖 FileProvider，只暴露 updates 目录 | 中 |
 | `TextKit.java` | 186 | 文件名消毒、MIME→扩展名、URL 短化 | 低（纯函数） |
-| `UrlKit.java` | 115 | 同源判定、私有网段判定、更新 URL 白名单 | 低（纯函数） |
+| `UrlKit.java` | 176 | 同源判定、私有网段判定、更新 URL 白名单 | 低（纯函数） |
 | `HtmlInjector.java` | 101 | 在 HTML `<head>` 后注入脚本 | 中（网络线程） |
 
 **分层原则（近期刚立的规矩）**：
@@ -101,16 +101,21 @@ cd verification && ./run_verify.sh ../tavernium
 
 ## 5. 已知缺陷与重点排查区（按重要度）
 
-### 5.1 【P0】release 仍用 debug 签名
+### 5.1 【已解决】签名与包名
 
-`app/build.gradle` 里 `release { signingConfig signingConfigs.debug }`。
+2.0.0 起 release 使用正式 keystore：`keystore/tavernium-release.jks`（4096-bit RSA，
+有效期 10000 天，证书 `CN=Tavernium, O=flashsky1024`），凭据在同目录 `keystore.properties`。
+两者都在 `.gitignore` 中，**不入库**。`app/build.gradle` 在缺少 `keystore.properties` 时
+会让 release 构建直接失败，而不是悄悄退回 debug 签名。
 
-- debug keystore 的密码是公开的（`android` / `androiddebugkey`），**任何人都能签出同包名的 APK**。
-- 换成正式 keystore 后，已装用户**无法覆盖安装**，必须卸载重装（WebView 的 localStorage/IndexedDB 会丢）。
-- 用户明确决定「先不动签名」，因为目前只有他一台设备在装。**接手者不要擅自改**，但要在报告里持续提醒。
+**包名同时变更**：`wiki.nandflash.tavernkeep` → `io.github.flashsky1024.tavernium`。
+这意味着 2.0.0 与 1.8.x 是**两个独立应用**：
 
-**排查建议**：确认 `apksigner verify --print-certs` 输出的 `CN=Android Debug`；
-确认更新流程里 `UpdateManager.verifyApkSignature()` 是 fail-closed（读不到自身签名返回 false）。
+- 旧版无法覆盖升级，必须卸载后重装
+- WebView 的 localStorage / IndexedDB 不会迁移（Android 沙箱隔离）
+- 旧版检查更新时会看到 2.0.0，下载后因签名不符被拒，属预期行为
+
+**keystore 丢失 = 永远无法再更新已发布的应用**。备份必须异地存放，密码与文件分开保管。
 
 ### 5.2 【P0】更新信任链仍有缺口
 
@@ -149,7 +154,7 @@ cd verification && ./run_verify.sh ../tavernium
 想法：注入 JS 监听 SillyTavern 的 `MESSAGE_RECEIVED`，后台生成完一条回复时发通知。
 依赖一个前提——页面在后台仍"假装可见"，这正是本项目的核心能力，所以可行。
 
-### 5.6 【P2】MainActivity 仍然 3388 行
+### 5.6 【P2】MainActivity 仍然 3288 行
 
 第一批纯函数已抽出（`TextKit`/`UrlKit`/`HtmlInjector`）。第二批计划抽 `IdleController`（防烧屏状态机）
 与 `SystemBars`（导航栏）。**风险点在生命周期**：抽出去的类如果持有 Activity 引用又不清理 Handler/Runnable，
@@ -162,7 +167,7 @@ cd verification && ./run_verify.sh ../tavernium
 - **改包名前想清楚**：`applicationId` 一改就是另一个 App，旧数据（localStorage/IndexedDB）新包读不到，
   无法通过任何代码手段迁移（Android 沙箱）。当前只改了显示名。
 - **服务器路径与 applicationId 已解耦**：更新服务器用 `apps/tavernium/`，但 `applicationId` 仍是
-  `wiki.nandflash.tavernkeep`。看到两者不一致**不是 bug**。
+  `io.github.flashsky1024.tavernium`。看到两者不一致**不是 bug**。
 - **下载目录故意叫 `下载/SillyTavern/`**，不跟着改名——改了会让老用户找不到历史导出文件。
 - **`PerfLog` 是异步有界队列**，不要假设 `append()` 后立刻可读。
 - **`TextKit.sanitizeFileName()` 的入口消毒不能省**：即使调用方已经消毒过，`saveStreamToDownloads()`
@@ -252,7 +257,7 @@ curl -X POST https://<UPD_HOST>/agent-notes/upload \
 
 1. 读 `UpdateManager.java` 的 `download()` 与 `verifyApkSignature()`，确认信任链没有 fail-open 分支。
 2. 读 `MainActivity.saveStreamToDownloads()` 与 `saveBlobToLocal()`，确认两条下载链路都经过消毒。
-3. 跑一遍 `verification/run_verify.sh`，确认基线是 388 项全绿——**任何少于这个数字的通过，都说明有测试没跑起来**。
+3. 跑一遍 `verification/run_verify.py`，确认基线是 535 项全绿——**任何少于这个数字的通过，都说明有测试没跑起来**。
 
-> 版本自检：`MainActivity.java` 应为 **3388 行**、`wc -l` 合计 **7163 行**。
+> 版本自检：`MainActivity.java` 应为 **3288 行**、`wc -l` 合计 **7734 行**。
 > 对不上说明你读的不是 1.8.37，§5 的缺陷清单可能已部分失效，请在报告开头注明实际版本。

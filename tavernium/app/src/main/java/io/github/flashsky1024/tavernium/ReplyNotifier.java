@@ -1,4 +1,4 @@
-package wiki.nandflash.tavernkeep;
+package io.github.flashsky1024.tavernium;
 
 import android.app.KeyguardManager;
 import android.app.Notification;
@@ -14,7 +14,7 @@ import android.os.PowerManager;
 /** 回复提醒与保活通知使用独立渠道；不接收或保存聊天正文、角色名。只在主线程调用。 */
 final class ReplyNotifier {
     static final String PERMISSION = "android.permission.POST_NOTIFICATIONS";
-    static final String ACTION_OPEN_REPLY = "wiki.nandflash.tavernkeep.OPEN_REPLY";
+    static final String ACTION_OPEN_REPLY = "io.github.flashsky1024.tavernium.OPEN_REPLY";
     private static final String CHANNEL_ID = "tavernium_replies";
     private static final int NOTIFICATION_ID = 10087;
     private final Context context;

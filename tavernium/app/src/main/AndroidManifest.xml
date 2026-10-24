@@ -33,7 +33,7 @@
              键盘/字体缩放变化时，重建会让 WebView 重载、丢掉正在聊的页面状态。
              配合 MainActivity.onConfigurationChanged 只刷新布局，不重载网页。 -->
         <activity
-            android:name="wiki.nandflash.tavernkeep.MainActivity"
+            android:name="io.github.flashsky1024.tavernium.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection">
@@ -44,7 +44,7 @@
         </activity>
 
         <service
-            android:name="wiki.nandflash.tavernkeep.KeepAliveService"
+            android:name="io.github.flashsky1024.tavernium.KeepAliveService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -54,7 +54,7 @@
 
         <!-- 更新包共享：零依赖版 FileProvider 替代品，只读、不导出、限定 updates 目录 -->
         <provider
-            android:name="wiki.nandflash.tavernkeep.ApkProvider"
+            android:name="io.github.flashsky1024.tavernium.ApkProvider"
             android:authorities="${applicationId}.updates"
             android:exported="false"
             android:grantUriPermissions="true"/>

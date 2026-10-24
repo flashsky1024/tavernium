@@ -74,7 +74,7 @@ def main():
         sdk_classes.mkdir()
         sdk_sources = out / "sdk-sources.txt"
         sdk_files = list((app / "app/src/main/java").rglob("*.java"))
-        sdk_files.append(out / "stubs/wiki/nandflash/tavernkeep/BuildConfig.java")
+        sdk_files.append(out / "stubs/io/github/flashsky1024/tavernium/BuildConfig.java")
         sdk_sources.write_text("\n".join('"' + f.as_posix() + '"' for f in sdk_files), encoding="utf-8")
         run("compile_android_sdk", ["javac", "-J-Dfile.encoding=UTF-8", "-J-Dstdout.encoding=UTF-8",
                                     "-J-Dstderr.encoding=UTF-8", "--release", "17", "-encoding", "UTF-8",
@@ -86,7 +86,7 @@ def main():
         run(name, ["java", "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED",
                    "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
                    "-Djava.io.tmpdir=" + str(tmp), "-Dtk.appSrc=" + str(app), "-cp", classes,
-                   "wiki.nandflash.tavernkeep." + name])
+                   "io.github.flashsky1024.tavernium." + name])
     for name, constant in [("raf_throttle_test", "FRAME_RATE_HOOK_JS"),
                            ("probe_burst_test", "PERF_PROBE_SEED"),
                            ("resource_error_test", "JS_ERROR_HOOK")]:

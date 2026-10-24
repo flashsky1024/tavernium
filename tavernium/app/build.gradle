@@ -3,19 +3,38 @@ plugins {
 }
 
 // 版本号单一来源：defaultConfig 与 APK 文件名共用，避免两处不一致
-def tkVersionName = '1.8.39'
+def tkVersionName = '2.0.0'
+
+// 签名凭据不写进仓库：keystore.properties 与 *.jks 均在 .gitignore 中。
+// 缺失时 release 构建会直接失败，而不是悄悄退回 debug 签名。
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
 
 android {
-    namespace 'wiki.nandflash.tavernkeep'
+    namespace 'io.github.flashsky1024.tavernium'
     compileSdk 36
     buildToolsVersion '36.0.0'
 
     defaultConfig {
-        applicationId 'wiki.nandflash.tavernkeep'
+        applicationId 'io.github.flashsky1024.tavernium'
         minSdk 24
         targetSdk 34
-        versionCode 51
+        versionCode 52
         versionName tkVersionName
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
     }
 
     buildTypes {
@@ -23,12 +42,12 @@ android {
             minifyEnabled false
         }
         release {
-            // R8 代码压缩/混淆 + 资源压缩（原手工构建缺失的能力）
+            // R8 代码压缩/混淆 + 资源压缩
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // 沙箱内用 debug 密钥签名以便直接安装验证；正式发布必须替换为自有 keystore
-            signingConfig signingConfigs.debug
+            // 正式签名：换 keystore 会导致已安装用户无法覆盖升级，密钥与密码必须异地备份
+            signingConfig signingConfigs.release
         }
     }
 
@@ -48,11 +67,25 @@ android {
     }
 }
 
+// 缺少签名配置时让 release 明确失败，避免打出未签名或错签名的包
+gradle.taskGraph.whenReady { graph ->
+    def wantsRelease = graph.allTasks.any { it.name.toLowerCase().contains('release') }
+    if (wantsRelease && !keystorePropsFile.exists()) {
+        throw new GradleException(
+                "缺少 keystore.properties：release 构建需要正式签名。\n" +
+                "请创建 tavernium/keystore.properties，内容形如：\n" +
+                "  storeFile=keystore/tavernium-release.jks\n" +
+                "  storePassword=***\n" +
+                "  keyAlias=tavernium\n" +
+                "  keyPassword=***")
+    }
+}
+
 // 本应用零第三方依赖：全部使用 Android 框架 API
 dependencies {
 }
 
-// 产物文件名带版本号，便于区分不同构建：tavernkeep-<variant>-<version>.apk
+// 产物文件名带版本号，便于区分不同构建：tavernium-<variant>-<version>.apk
 androidComponents {
     onVariants(selector().all()) { variant ->
         variant.outputs.forEach { output ->

@@ -1,4 +1,4 @@
-package wiki.nandflash.tavernkeep;
+package io.github.flashsky1024.tavernium;
 
 import android.content.Context;
 import android.content.pm.PackageInfo;
@@ -149,13 +149,13 @@ public final class UpdateSecurityTest {
     }
     private static final class FakeContext extends Context {
         final File cache;
-        String archiveName = "wiki.nandflash.tavernkeep";
+        String archiveName = "io.github.flashsky1024.tavernium";
         int archiveVersion = 50, packageChecks;
         Signature[] ownSignatures = {new Signature(new byte[]{1, 2, 3})};
         Signature[] archiveSignatures = ownSignatures;
         FakeContext() throws Exception { cache = Files.createTempDirectory("tk-update-").toFile(); }
         @Override public File getCacheDir() { return cache; }
-        @Override public String getPackageName() { return "wiki.nandflash.tavernkeep"; }
+        @Override public String getPackageName() { return "io.github.flashsky1024.tavernium"; }
         @Override public PackageManager getPackageManager() { return new PackageManager() {
             @Override public PackageInfo getPackageInfo(String name, int flags) {
                 PackageInfo info = new PackageInfo(); info.signatures = ownSignatures; return info;

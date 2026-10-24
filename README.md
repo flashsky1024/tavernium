@@ -2,7 +2,7 @@
 
 把自建的 [SillyTavern](https://github.com/SillyTavern/SillyTavern) 装进手机。
 
-一个轻量的 Android 外壳，用系统 WebView 加载你自己服务器上的 SillyTavern 页面，
+一个轻量的 Android 外壳。它用系统 WebView 加载你自己服务器上的 SillyTavern 页面，
 再补上浏览器做不到的几件事。零第三方依赖，纯 Java，约 7,700 行。
 
 > 这不是 SillyTavern 官方客户端，与该项目的开发者没有隶属关系。
@@ -38,16 +38,14 @@
 
 ## 安装
 
-从 [Releases](../../releases) 或作者的更新站下载 APK。
+从 [Releases](https://github.com/flashsky1024/tavernium/releases) 下载 APK。
 
-**2.0.0 与 1.8.x 互不兼容**：包名从 `wiki.nandflash.tavernkeep` 改成了
-`io.github.flashsky1024.tavernium`，两者是两个独立应用，不会互相覆盖。
-从旧版升级请先备份聊天记录，装好新版后重新登录。
-
-| 版本 | 包名 | 用途 |
+| 文件 | 包名 | 用途 |
 |---|---|---|
 | `tavernium-release-*.apk` | `io.github.flashsky1024.tavernium` | 日常使用 |
 | `tavernium-debug-*.apk` | `...tavernium.debug` | 排查问题，与正式版**可同时安装** |
+
+两个版本数据互相隔离，调试不会污染正式版的聊天记录。
 
 ---
 
@@ -74,7 +72,7 @@
 需要 **JDK 17+** 和 **Android SDK 36**。
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/flashsky1024/tavernium.git
 cd tavernium
 
 # release 构建必须有签名配置，否则 Gradle 会直接报错退出
@@ -134,8 +132,7 @@ tavernium/
 └── verification/              离线测试体系（桩 + javac + node）
 ```
 
-更细的设计说明、缺陷分级与踩坑记录见 [`tavernium/AGENT-HANDOFF.md`](tavernium/AGENT-HANDOFF.md)，
-本轮改动过程见 [`tavernium/DEVELOPMENT.md`](tavernium/DEVELOPMENT.md)。
+更细的设计说明与踩坑记录见 [`tavernium/AGENT-HANDOFF.md`](tavernium/AGENT-HANDOFF.md)。
 
 ---
 
@@ -155,9 +152,6 @@ tavernium/
 服务器地址不符合上面的规则。应用会短暂白屏后弹出设置框并提示原因，按提示改成
 `https://` 或局域网 IP 即可。
 
-**提示"签名不一致"？**
-你装过同包名的旧构建（比如早期用 debug 密钥签的包）。卸载旧版再装。
-
 **聊天记录在哪？怎么备份？**
 SillyTavern 的数据主体在服务端，本地主要是 WebView 的 localStorage / IndexedDB
 （`/data/data/io.github.flashsky1024.tavernium/app_webview/`）。
@@ -172,14 +166,12 @@ SillyTavern 的数据主体在服务端，本地主要是 WebView 的 localStora
 
 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）。
 
-简单说：
-
 - 可以自由使用、修改、分发
 - 如果修改后**通过网络向他人提供服务**，必须公开修改后的源码
 - 分发时必须保留同样的许可，并注明改动
 
-选择 AGPL 而不是 MIT，是因为这个项目本身就是"把别人的 Web 服务包起来"的形态，
-如果将来有人把它改成托管服务分发，改动应该回流到社区。自己编译自己用不承担额外义务。
+这个项目本身就是"把别人的 Web 服务包起来"的形态，选择 AGPL 是为了让衍生版本的改动
+也能回流到社区。自己编译自己用不承担额外义务。
 
 ---
 

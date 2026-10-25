@@ -1173,8 +1173,10 @@ public class CacheManagerTest {
         check("指引走内置页而非外链", src.contains("showGuideDialog()")
                 && src.contains("file:///android_asset/guide.html"));
         check("内置指引不启用 JS", src.contains("ws.setJavaScriptEnabled(false)"));
-        check("升级说明按 versionCode 判断且只弹一次",
-                src.contains("PREF_LAST_SEEN_VERSION") && src.contains("last == 0 || last >= current"));
+        check("升级说明用 versionCode 去重",
+                src.contains("PREF_LAST_SEEN_VERSION") && src.contains("last >= current"));
+        check("无版本记录时用服务器地址识别老用户",
+                src.contains("boolean returningUser = last > 0 || !this.serverUrl.isEmpty()"));
 
         java.io.File guide = new java.io.File(
                 System.getProperty("tk.appSrc", ""), "app/src/main/assets/guide.html");

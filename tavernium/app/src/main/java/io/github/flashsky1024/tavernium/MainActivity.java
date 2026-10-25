@@ -326,9 +326,12 @@ public class MainActivity extends Activity {
     /**
      * 升级后首次启动展示一次更新说明。
      *
-     * <p>lastSeen 为 0 表示首次安装：此时有「开始使用」引导，再叠一层更新说明只会打断
-     * 配置流程，所以只记录版本、不弹窗。只有从旧版本升上来（lastSeen &lt; 当前 versionCode）
-     * 才展示一次，展示后立即写入当前版本，避免每次启动都弹。</p>
+     * <p>不能只靠 lastSeen 判断首次安装：这个键是 2.0.2 才加的，从旧版本升上来的用户
+     * 第一次运行时读到的是默认值 0，会被误判成“刚装”。因此再用服务器地址兜底——
+     * 已经配过服务器就说明是老用户，即使没有 lastSeen 记录也应该展示。</p>
+     *
+     * <p>真正的首次安装 serverUrl 为空，此时有「开始使用」引导，再叠一层更新说明只会
+     * 打断配置流程，所以只记录版本、不弹窗。</p>
      */
     private void maybeShowWhatsNew() {
         if (this.prefs == null || this.handler == null) {
@@ -336,9 +339,10 @@ public class MainActivity extends Activity {
         }
         final int current = BuildConfig.VERSION_CODE;
         int last = this.prefs.getInt(PREF_LAST_SEEN_VERSION, 0);
+        boolean returningUser = last > 0 || !this.serverUrl.isEmpty();
         // 先落盘再弹：即使弹窗期间进程被回收，也不会重复提示
         this.prefs.edit().putInt(PREF_LAST_SEEN_VERSION, current).apply();
-        if (last == 0 || last >= current) {
+        if (!returningUser || last >= current) {
             return;
         }
         this.handler.postDelayed(new Runnable() {

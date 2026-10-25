@@ -208,7 +208,7 @@ cd verification && python3 run_verify.py
 | 系统要求 | Android 7.0（API 24）及以上 |
 | targetSdk / compileSdk | 34 / 36 |
 | 语言 | Java 17 |
-| 安装包 | release 236,064 字节（约 231 KB），debug 1,233,674 字节（约 1.2 MB） |
+| 安装包 | release 236,080 字节（约 231 KB），debug 1,233,674 字节（约 1.2 MB） |
 | CPU 架构 | 不限，纯 Java，没有 native 库 |
 | 签名证书 | `CN=Tavernium, O=flashsky1024`，4096 位 RSA，有效期至 2054 年 |
 

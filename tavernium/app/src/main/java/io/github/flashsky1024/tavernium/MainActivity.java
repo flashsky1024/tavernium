@@ -2201,18 +2201,9 @@ public class MainActivity extends Activity {
     /**
      * 更新渠道切换。
      *
-     * <p>正式版与调试版是两个独立 appId 的清单，内容一致但构建方式不同
-     * （调试版未混淆、日志更详细）。装调试版的人应该继续拿调试包，否则会被
-     * "更新"回正式包——而两者 versionCode 相同，Android 不允许覆盖安装，
-     * 表面现象就是"更新失败"。</p>
-     */
-    /**
-     * 更新渠道切换。
-     *
-     * <p>正式版与调试版是两个独立 appId 的清单，内容一致但构建方式不同
-     * （调试版未混淆、日志更详细）。装调试版的人应该继续拿调试包，否则会被
-     * "更新"回正式包——而两者 versionCode 相同，Android 不允许覆盖安装，
-     * 表面现象就是"更新失败"。</p>
+     * <p>正式版与调试版是包名、签名均不同的两个独立应用，可以同时安装。
+     * 切换渠道只决定检查哪一份更新清单；安装另一渠道的 APK 时，Android 会把它
+     * 作为新应用并行安装，不会覆盖当前版本，也不会迁移应用数据。</p>
      *
      * <p>注意：说明文字必须放在自定义 View 里，不能用 {@code setMessage}。
      * 部分 ROM 的 AlertDialog 在 message 较长时会把 {@code setItems} 的列表区
@@ -2231,8 +2222,10 @@ public class MainActivity extends Activity {
         root.setPadding(pad, 0, pad, 0);
 
         TextView desc = new TextView(this);
-        desc.setText("两个渠道的版本号是并行的：切到另一渠道后，只有发布了新版本才能装"
-                + "（同版本号无法覆盖安装）。\n\n"
+        desc.setText("正式版和调试版是包名与签名不同的两个独立应用，可以同时安装，"
+                + "设置和缓存互不共享。\n\n"
+                + "切换渠道只改变检查哪一份更新。安装另一渠道时会作为新应用并行安装，"
+                + "不会覆盖当前版本，也不会继承当前版本的数据。\n\n"
                 + "当前安装包类型：" + (BuildConfig.DEBUG ? "调试版" : "正式版"));
         desc.setTextSize(13);
         desc.setLineSpacing(3 * density, 1.0f);
@@ -2329,21 +2322,25 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * 签名不一致：默认拒绝安装。
+     * 安装包未通过包名或证书校验：拒绝安装。
      *
-     * <p>出现这种情况只有两种可能：更新服务器被篡改，或者应用换过签名。
-     * 两者都拒绝进入安装器，需先重新确认更新来源。</p>
+     * <p>同包名更新必须与当前应用证书完全一致；安装另一渠道时，必须使用
+     * Tavernium 固定的正式版/调试版证书。出现不匹配通常只有两种可能：
+     * 更新服务器被篡改，或者下载到了来历不明的安装包。</p>
      */
     private void showSignatureMismatchDialog(final java.io.File apk) {
         if (isFinishing() || isDestroyed()) {
             return;
         }
         new AlertDialog.Builder(this)
-                .setTitle("安装包签名不一致")
-                .setMessage("下载到的安装包与当前应用的签名不匹配，或本机无法校验签名。\n\n"
-                        + "正常情况下不应该出现。可能原因：\n"
+                .setTitle("安装包校验失败")
+                .setMessage("下载到的安装包未通过 Tavernium 的包名或证书校验。\n\n"
+                        + "只有两类安装包会被允许：\n"
+                        + "• 与当前应用包名、签名完全一致的更新\n"
+                        + "• 使用 Tavernium 正式版或调试版固定证书的独立应用\n\n"
+                        + "可能原因：\n"
                         + "• 更新服务器被篡改，下发了伪造的安装包\n"
-                        + "• 应用更换过签名（需要用新签名的包重新安装）\n"
+                        + "• 应用更换过签名，或调试密钥已经重新生成\n"
                         + "• 本机读不到应用签名（部分定制系统会这样）\n\n"
                         + "已停止安装，请确认来源后重新检查更新。")
                 .setPositiveButton("知道了", null)
@@ -2367,7 +2364,9 @@ public class MainActivity extends Activity {
         final java.util.List<UpdateManager.Release> releases = list;
         String[] labels = new String[list.size()];
         for (int i = 0; i < list.size(); i++) {
-            labels[i] = list.get(i).label(BuildConfig.VERSION_CODE);
+            UpdateManager.Release release = list.get(i);
+            labels[i] = release.label(BuildConfig.VERSION_CODE,
+                    UpdateManager.isCrossChannel(this, release.channel));
         }
         new AlertDialog.Builder(this)
                 .setTitle("选择版本（" + UpdateManager.channelLabel(channel)
@@ -2401,7 +2400,9 @@ public class MainActivity extends Activity {
 
     private void confirmUpdate(final UpdateManager.Release release) {
         final boolean sameVersion = release.versionCode == BuildConfig.VERSION_CODE;
-        boolean downgrade = release.versionCode < BuildConfig.VERSION_CODE;
+        final boolean downgrade = release.versionCode < BuildConfig.VERSION_CODE;
+        final boolean crossChannel = UpdateManager.isCrossChannel(this, release.channel);
+        final boolean reinstallSameApp = sameVersion && !crossChannel;
         StringBuilder msg = new StringBuilder();
         msg.append("版本：").append(release.versionName)
                 .append(" (").append(release.versionCode).append(")\n");
@@ -2417,21 +2418,33 @@ public class MainActivity extends Activity {
         if (!release.notes.isEmpty()) {
             msg.append("\n").append(release.notes);
         }
-        if (sameVersion) {
+        if (crossChannel) {
+            msg.append("\n\n注意：这是")
+                    .append(UpdateManager.channelLabel(release.channel))
+                    .append("安装包，与当前安装的")
+                    .append(BuildConfig.DEBUG ? "调试版" : "正式版")
+                    .append("是两个独立应用。\n\n")
+                    .append("正式版和调试版使用不同包名与签名，无法互相覆盖。继续后会")
+                    .append("作为新应用并行安装：\n")
+                    .append("• 当前版本不会被替换\n")
+                    .append("• 设置、缓存和登录状态不会共享\n")
+                    .append("• 安装后桌面可能同时出现 Tavernium 与 Tavernium Dev\n\n")
+                    .append("确认不再需要当前版本时，可以在安装完成后手动卸载。");
+        } else if (sameVersion) {
             msg.append("\n\n当前已安装同一版本。重装会覆盖现有安装，")
                     .append("应用内设置与缓存都保留。\n\n")
                     .append("适用场景：\n")
-                    .append("• 想在正式版 / 调试版之间切换（两者版本号并行）\n")
-                    .append("• 怀疑安装包损坏，需要重新装一遍\n\n")
+                    .append("• 怀疑安装包损坏，需要重新装一遍\n")
+                    .append("• 安装失败后重新下载一份干净的包\n\n")
                     .append("部分系统会拒绝安装同版本号；若提示失败，请先卸载再装。");
         } else if (downgrade) {
-            msg.append("\n\n注意：这是比当前更旧的版本，Android 不允许直接降级安装，")
+            msg.append("\n\n注意：这是比当前更旧的版本。Android 不允许同一应用直接降级，")
                     .append("需要先卸载当前版本（会丢失应用内设置与缓存）。");
         }
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle((sameVersion ? "重新安装 " : "安装 ") + release.versionName)
+                .setTitle((reinstallSameApp ? "重新安装 " : "安装 ") + release.versionName)
                 .setMessage(msg.toString())
-                .setPositiveButton(sameVersion ? "重新安装" : "下载并安装",
+                .setPositiveButton(reinstallSameApp ? "重新安装" : "下载并安装",
                         new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
@@ -2509,16 +2522,16 @@ public class MainActivity extends Activity {
                             }, cancel, forceRedownload);
                     PerfLog.i(TAG, "update downloaded: " + apk.getName()
                             + " " + apk.length() + "B");
-                    // 签名校验：SHA-256 只能证明"下到的是清单里那个文件"，
-                    // 证明不了"清单可信"。签名一致才允许直接安装。
-                    final boolean sigOk = UpdateManager.verifyApkSignature(
+                    // 签名校验：同包名更新必须与当前证书一致；另一渠道则必须匹配
+                    // 固定的正式版/调试版证书指纹。两者都通过才交给系统安装器。
+                    final boolean trusted = UpdateManager.verifyApkForInstall(
                             MainActivity.this, apk);
-                    PerfLog.i(TAG, "update signature match: " + sigOk);
+                    PerfLog.i(TAG, "update signature trusted: " + trusted);
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
                             dialog.dismiss();
-                            if (sigOk) {
+                            if (trusted) {
                                 installApk(apk);
                             } else {
                                 showSignatureMismatchDialog(apk);

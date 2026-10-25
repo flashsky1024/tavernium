@@ -21,13 +21,13 @@
 
 | 项 | 值 |
 |---|---|
-| versionName / versionCode | **2.0.0 / 52** |
+| versionName / versionCode | **2.0.1 / 53** |
 | applicationId | `io.github.flashsky1024.tavernium`（2.0.0 起；旧版为 `wiki.nandflash.tavernkeep`） |
 | 桌面显示名 | `Tavernium` |
 | 签名 | **正式 keystore**（2.0.0 起，4096-bit RSA，见 §5.1） |
 | 更新服务器 | `https://<UPD_HOST>/api/apps/tavernium/releases.json` |
 | 更新包目录 | `<UPD_HOST>/apps/tavernium/`（旧 `apps/tavernkeep/` 仅作回滚，不再更新） |
-| 离线测试 | **535 项全绿**（`verification/run_verify.py`） |
+| 离线测试 | **561 项全绿**（`verification/run_verify.py`） |
 | 代码规模 | 约 7,160 行 Java，10 个文件 |
 
 ---
@@ -257,7 +257,7 @@ curl -X POST https://<UPD_HOST>/agent-notes/upload \
 
 1. 读 `UpdateManager.java` 的 `download()` 与 `verifyApkSignature()`，确认信任链没有 fail-open 分支。
 2. 读 `MainActivity.saveStreamToDownloads()` 与 `saveBlobToLocal()`，确认两条下载链路都经过消毒。
-3. 跑一遍 `verification/run_verify.py`，确认基线是 535 项全绿——**任何少于这个数字的通过，都说明有测试没跑起来**。
+3. 跑一遍 `verification/run_verify.py`，确认基线是 561 项全绿——**任何少于这个数字的通过，都说明有测试没跑起来**。
 
 > 版本自检：`MainActivity.java` 应为 **3288 行**、`wc -l` 合计 **7734 行**。
 > 对不上说明你读的不是 1.8.37，§5 的缺陷清单可能已部分失效，请在报告开头注明实际版本。

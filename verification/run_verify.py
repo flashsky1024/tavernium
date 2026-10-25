@@ -80,8 +80,9 @@ def main():
                                     "-J-Dstderr.encoding=UTF-8", "--release", "17", "-encoding", "UTF-8",
                                     "-cp", args.android_jar.resolve(), "-d", sdk_classes, "@" + str(sdk_sources)], 60)
     java_tests = ["CacheManagerTest", "PerfMonitorTest", "UpdateManagerTest",
-                  "MainActivitySafetyTest", "BridgeSessionTest", "ReplyNotifierTest",
-                  "UpdateSecurityTest", "MainBridgeTest", "IdleControllerTest"]
+                  "UpdateChannelTest", "MainActivitySafetyTest", "BridgeSessionTest",
+                  "ReplyNotifierTest", "UpdateSecurityTest", "MainBridgeTest",
+                  "IdleControllerTest"]
     for name in java_tests:
         run(name, ["java", "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED",
                    "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",

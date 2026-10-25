@@ -1136,7 +1136,7 @@ public class CacheManagerTest {
 
         String src = readSource("MainActivity.java");
         check("检查更新走多源解析", src.contains("fetchFromAnySource"));
-        check("安装前校验签名", src.contains("verifyApkSignature"));
+        check("安装前校验签名", src.contains("verifyApkForInstall"));
         check("签名不一致有明确警告", src.contains("showSignatureMismatchDialog"));
         String up = readSource("UpdateManager.java");
         check("候选源列表存在", up.contains("DEFAULT_BASES"));

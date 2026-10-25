@@ -73,6 +73,23 @@ public final class UpdateManager {
     public static final String APP_ID = "tavernium";
     /** 调试包的独立清单（服务端 appId 不同，客户端不会误把调试包当正式版）。 */
     public static final String APP_ID_DEBUG = "tavernium-debug";
+    /** 两个发布包使用不同 applicationId，因此可以同时安装，数据互相隔离。 */
+    public static final String PACKAGE_STABLE = "io.github.flashsky1024.tavernium";
+    public static final String PACKAGE_DEBUG = PACKAGE_STABLE + ".debug";
+    /**
+     * 正式包与调试包的证书 SHA-256 指纹。
+     *
+     * <p>更新时如果 APK 的包名是另一个发布包，就不能再拿「当前应用证书」比较。
+     * 这里分别固定两个公开证书指纹：既能支持正式版安装调试版、调试版安装正式版，
+     * 又不会把「更新服务器被替换成任意签名的 APK」放进来。</p>
+     *
+     * <p>证书是公开信息，指纹不是私钥。若以后重新生成调试密钥，需要同步更新
+     * {@link #SIGNER_SHA256_DEBUG}，并由能覆盖安装的正式渠道发布这次修改。</p>
+     */
+    static final String SIGNER_SHA256_STABLE =
+            "878b8e33dc6cb602d5a6f5980c08c3f48bc72f58942edbbac2ea42873fce1692";
+    static final String SIGNER_SHA256_DEBUG =
+            "35fdb2af0552ba25622852d33b7e377dd4ad968790377bc7a573d7dd59b1fcf8";
     public static final String CHANNEL_STABLE = "stable";
     public static final String CHANNEL_DEBUG = "debug";
     /** 更新渠道：stable / debug。未设置时跟随当前安装包类型。 */
@@ -105,6 +122,16 @@ public final class UpdateManager {
 
         /** 列表里显示的一行文字。 */
         public String label(int currentCode) {
+            return label(currentCode, false);
+        }
+
+        /**
+         * 列表文案。
+         *
+         * <p>{@code otherChannel} 为 true 时，该 APK 会作为另一个应用安装，
+         * 不能标成“当前版本，可重装”或“可升级”。</p>
+         */
+        public String label(int currentCode, boolean otherChannel) {
             StringBuilder sb = new StringBuilder();
             sb.append(versionName).append(" (").append(versionCode).append(')');
             if (!date.isEmpty()) {
@@ -113,7 +140,9 @@ public final class UpdateManager {
             if (size > 0) {
                 sb.append(" · ").append(formatSize(size));
             }
-            if (versionCode == currentCode) {
+            if (otherChannel) {
+                sb.append(" · 独立应用");
+            } else if (versionCode == currentCode) {
                 sb.append(" · 当前版本，可重装");
             } else if (versionCode > currentCode) {
                 sb.append(" · 可升级");
@@ -161,6 +190,27 @@ public final class UpdateManager {
     /** 渠道对应的 appId。 */
     public static String appIdFor(String channel) {
         return CHANNEL_DEBUG.equals(channel) ? APP_ID_DEBUG : APP_ID;
+    }
+
+    /** 渠道对应的 Android 包名。 */
+    public static String packageFor(String channel) {
+        return CHANNEL_DEBUG.equals(channel) ? PACKAGE_DEBUG : PACKAGE_STABLE;
+    }
+
+    /**
+     * 目标包是否是本应用的另一发布渠道。
+     *
+     * <p>只认两个固定包名，不允许更新清单任意指定包名。包名不同意味着 Android
+     * 会把它当作另一个应用安装，而不是覆盖当前应用。</p>
+     */
+    static boolean isSiblingPackage(String currentPackage, String targetPackage) {
+        return (PACKAGE_STABLE.equals(currentPackage) && PACKAGE_DEBUG.equals(targetPackage))
+                || (PACKAGE_DEBUG.equals(currentPackage) && PACKAGE_STABLE.equals(targetPackage));
+    }
+
+    /** 当前安装包与目标渠道是否属于不同应用。 */
+    public static boolean isCrossChannel(Context context, String channel) {
+        return context != null && !packageFor(channel).equals(context.getPackageName());
     }
 
     /**
@@ -302,6 +352,53 @@ public final class UpdateManager {
         }
     }
 
+    /**
+     * 校验 APK 是否可以交给系统安装器。
+     *
+     * <p>支持两种情况：</p>
+     * <ul>
+     *   <li>同一包名的正常更新/重装：证书必须与当前应用完全一致。</li>
+     *   <li>另一渠道的独立应用：包名必须是固定的正式版或调试版包名，
+     *       并且证书必须匹配该渠道固定的公开证书指纹。</li>
+     * </ul>
+     *
+     * <p>包名不同时 Android 不会覆盖当前应用，而是并行安装另一个应用。
+     * 调用方不得把这种情况描述成覆盖升级。</p>
+     */
+    public static boolean verifyApkForInstall(Context context, File apk) {
+        if (verifyApkSignature(context, apk)) {
+            return true;
+        }
+        if (context == null || apk == null || !apk.exists()) {
+            return false;
+        }
+        try {
+            android.content.pm.PackageManager pm = context.getPackageManager();
+            android.content.pm.PackageInfo target = pm.getPackageArchiveInfo(
+                    apk.getAbsolutePath(), android.content.pm.PackageManager.GET_SIGNATURES);
+            if (target == null || target.packageName == null || target.signatures == null
+                    || target.signatures.length == 0
+                    || !isSiblingPackage(context.getPackageName(), target.packageName)) {
+                return false;
+            }
+            String pinned = PACKAGE_DEBUG.equals(target.packageName)
+                    ? SIGNER_SHA256_DEBUG : SIGNER_SHA256_STABLE;
+            return matchesPinnedSigner(target.signatures, pinned);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 签名集合必须恰好是单个固定证书。多签会改变 Android 的签名身份，不能放行。 */
+    static boolean matchesPinnedSigner(android.content.pm.Signature[] signatures,
+                                       String expectedSha256) {
+        if (signatures == null || expectedSha256 == null || expectedSha256.isEmpty()) {
+            return false;
+        }
+        java.util.Set<String> signers = signatureHashes(signatures);
+        return signers.size() == 1 && signers.contains(expectedSha256.toLowerCase(Locale.US));
+    }
+
     private static java.util.Set<String> signatureHashes(
             android.content.pm.Signature[] sigs) {
         java.util.Set<String> out = new java.util.HashSet<>();
@@ -413,8 +510,8 @@ public final class UpdateManager {
     }
 
     private static void requireVerifiedApk(Context context, File apk, Release release) {
-        if (!verifyApkSignature(context, apk)) {
-            throw new SecurityException("安装包的包名或签名与当前应用不一致，已拒绝更新");
+        if (!verifyApkForInstall(context, apk)) {
+            throw new SecurityException("安装包不是受信任的 Tavernium 版本，已拒绝更新");
         }
         android.content.pm.PackageInfo info = context.getPackageManager().getPackageArchiveInfo(
                 apk.getAbsolutePath(), 0);
@@ -641,7 +738,7 @@ public final class UpdateManager {
      * 调用方应给出提示，而不是让 ActivityNotFoundException 把进程带走。
      */
     public static boolean install(Context context, File apk) {
-        if (!verifyApkSignature(context, apk)) {
+        if (!verifyApkForInstall(context, apk)) {
             return false;
         }
         Uri uri = Uri.parse("content://" + context.getPackageName()

@@ -30,7 +30,7 @@ Tavernium 不是又一个 AI 聊天应用，它更像一个转接头：酒馆还
 
 步骤：
 
-1. 到 [Releases](https://github.com/flashsky1024/tavernium/releases) 下载最新的安装包，文件名形如 `tavernium-release-2.0.0.apk`
+1. 到 [Releases](https://github.com/flashsky1024/tavernium/releases) 下载最新的安装包，文件名形如 `tavernium-release-2.0.1.apk`
 2. 在手机上打开安装包。如果系统提示不允许安装未知来源的应用，按提示允许即可
 3. 打开 Tavernium，填入你平时在浏览器里访问酒馆用的地址
 
@@ -78,6 +78,8 @@ Tavernium 不是又一个 AI 聊天应用，它更像一个转接头：酒馆还
 ### 应用内更新
 
 Tavernium 自带更新功能。更新包下载后会核对包名、签名证书、版本号和 SHA-256 校验值。签名证书对不上就拒绝安装，防止装上被人替换过的安装包。
+
+正式版和调试版也可以互相安装。两者使用不同包名与签名，Android 会把它们当作两个独立应用：安装另一版本时不会覆盖当前版本，设置、缓存和登录状态也不会共享；不再需要其中一个时，可以手动卸载。
 
 第一次更新时，系统可能会询问是否允许 Tavernium 安装应用，允许即可。
 
@@ -187,7 +189,7 @@ onCreate
 
 ```bash
 cd verification && python3 run_verify.py
-# 535 项 PASS，0 FAIL
+# 561 项 PASS，0 FAIL
 ```
 
 不需要 Android SDK，有 JDK、Node.js 和 Python 3 就能跑：
@@ -201,12 +203,12 @@ cd verification && python3 run_verify.py
 
 | 项 | 值 |
 |---|---|
-| 版本 | 2.0.0（versionCode 52） |
+| 版本 | 2.0.1（versionCode 53） |
 | 包名 | `io.github.flashsky1024.tavernium`（debug 版为 `io.github.flashsky1024.tavernium.debug`） |
 | 系统要求 | Android 7.0（API 24）及以上 |
 | targetSdk / compileSdk | 34 / 36 |
 | 语言 | Java 17 |
-| 安装包 | release 232,009 字节（约 227 KB），debug 1,126,119 字节（约 1.1 MB） |
+| 安装包 | release 232,669 字节（约 227 KB），debug 1,227,752 字节（约 1.2 MB） |
 | CPU 架构 | 不限，纯 Java，没有 native 库 |
 | 签名证书 | `CN=Tavernium, O=flashsky1024`，4096 位 RSA，有效期至 2054 年 |
 

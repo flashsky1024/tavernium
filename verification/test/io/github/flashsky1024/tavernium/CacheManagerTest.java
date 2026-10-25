@@ -1157,6 +1157,37 @@ public class CacheManagerTest {
                 !mainMenu.contains("性能监控") && !mainMenu.contains("导出性能日志")
                         && !mainMenu.contains("清空不可达域名") && !mainMenu.contains("查看性能报告"));
         check("取消改为按钮而非列表项", src.contains(".setNegativeButton(\"取消\", null)"));
+        check("导出日志文件名使用 Tavernium 前缀",
+                src.contains("\"tavernium-perf-\"") && !src.contains("\"tavernkeep-perf-\""));
+
+        // 返回键固定作为菜单入口，不再跟随网页历史；网页后退只能从菜单第一项走。
+        int hb = src.indexOf("private void handleBackKey()");
+        int hbEnd = src.indexOf("屏幕配置变化", hb);
+        String back = hb >= 0 && hbEnd > hb ? src.substring(hb, hbEnd) : "";
+        check("返回键固定弹菜单", back.contains("showMenuDialog()"));
+        check("返回键不再跟随网页历史", !back.contains("canGoBack") && !back.contains("goBack()"));
+        check("全屏视频仍可退出", back.contains("hideCustomView()"));
+        check("菜单保留网页后退入口", src.contains("\"返回上一级\""));
+
+        check("主菜单有使用指引入口", src.contains("\"使用指引\""));
+        check("指引走内置页而非外链", src.contains("showGuideDialog()")
+                && src.contains("file:///android_asset/guide.html"));
+        check("内置指引不启用 JS", src.contains("ws.setJavaScriptEnabled(false)"));
+        check("升级说明按 versionCode 判断且只弹一次",
+                src.contains("PREF_LAST_SEEN_VERSION") && src.contains("last == 0 || last >= current"));
+
+        java.io.File guide = new java.io.File(
+                System.getProperty("tk.appSrc", ""), "app/src/main/assets/guide.html");
+        String guideHtml = null;
+        try {
+            guideHtml = new String(java.nio.file.Files.readAllBytes(guide.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+        }
+        check("内置指引已打包", guideHtml != null && guideHtml.length() > 3000);
+        check("内置指引不依赖外部资源", guideHtml != null
+                && !guideHtml.contains("href=\"http") && !guideHtml.contains("src=\"http"));
+        check("内置指引不含脚本", guideHtml != null && !guideHtml.contains("<script"));
     }
 
     /**

@@ -122,6 +122,8 @@ public class MainActivity extends Activity {
     private static final String PREF_NORMAL_IDLE_WARNED = "idle_normal_warned";
     /** 电池优化白名单只在首次自动引导一次，之后从「调试与诊断」手动进入。 */
     private static final String PREF_BATTERY_PROMPTED = "battery_opt_prompted";
+    /** 上次启动时见过的 versionCode；升级后首次启动用它判断是否展示更新说明。 */
+    private static final String PREF_LAST_SEEN_VERSION = "last_seen_version_code";
     /** blob 下载的 base64 上限：64MB 文本约 48MB 文件，再大基本是异常调用，宁可拒绝也别 OOM。 */
     private static final int MAX_BLOB_BASE64_CHARS = 64 * 1024 * 1024;
     private static final int IDLE_OFF = 0;
@@ -318,6 +320,96 @@ public class MainActivity extends Activity {
             maybePromptBatteryOptimization();
         }
         startKeepAliveService();
+        maybeShowWhatsNew();
+    }
+
+    /**
+     * 升级后首次启动展示一次更新说明。
+     *
+     * <p>lastSeen 为 0 表示首次安装：此时有「开始使用」引导，再叠一层更新说明只会打断
+     * 配置流程，所以只记录版本、不弹窗。只有从旧版本升上来（lastSeen &lt; 当前 versionCode）
+     * 才展示一次，展示后立即写入当前版本，避免每次启动都弹。</p>
+     */
+    private void maybeShowWhatsNew() {
+        if (this.prefs == null || this.handler == null) {
+            return;
+        }
+        final int current = BuildConfig.VERSION_CODE;
+        int last = this.prefs.getInt(PREF_LAST_SEEN_VERSION, 0);
+        // 先落盘再弹：即使弹窗期间进程被回收，也不会重复提示
+        this.prefs.edit().putInt(PREF_LAST_SEEN_VERSION, current).apply();
+        if (last == 0 || last >= current) {
+            return;
+        }
+        this.handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                showWhatsNewDialog();
+            }
+        }, 900L);
+    }
+
+    /** 只列用户能感知的变化；技术细节留在 releases.json 和 README。 */
+    private void showWhatsNewDialog() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("已更新到 " + BuildConfig.VERSION_NAME)
+                .setMessage("• 返回键固定打开菜单，网页后退移到菜单第一项「返回上一级」\n"
+                        + "• 新增内置使用指引，不联网也能看\n"
+                        + "• 导出的日志文件名改为 tavernium-perf-\n\n"
+                        + "使用指引随时可以从主菜单打开。")
+                .setPositiveButton("知道了", null)
+                .setNeutralButton("查看指引", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        showGuideDialog();
+                    }
+                })
+                .show();
+    }
+
+    /**
+     * 内置使用指引：读取 assets/guide.html，离线、无 JS、无外部请求。
+     *
+     * <p>用独立 WebView 而不是复用主 WebView，避免污染酒馆页面的历史栈、Cookie 和
+     * 缓存；关闭对话框时立即 destroy，防止渲染进程常驻。</p>
+     */
+    private void showGuideDialog() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        final WebView guide = new WebView(this);
+        guide.setBackgroundColor(0xFF0F1216);
+        android.webkit.WebSettings ws = guide.getSettings();
+        ws.setJavaScriptEnabled(false);
+        ws.setDomStorageEnabled(false);
+        ws.setAllowFileAccess(false);
+        ws.setAllowContentAccess(false);
+        ws.setSupportZoom(false);
+        ws.setBuiltInZoomControls(false);
+        int height = (int) (getResources().getDisplayMetrics().heightPixels * 0.72f);
+        // AlertDialog 会重写自定义 View 的 LayoutParams，套一层固定高度的容器更稳
+        FrameLayout holder = new FrameLayout(this);
+        holder.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, height));
+        holder.addView(guide, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        guide.loadUrl("file:///android_asset/guide.html");
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("使用指引")
+                .setView(holder)
+                .setPositiveButton("关闭", null)
+                .create();
+        dialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
+            @Override
+            public void onDismiss(DialogInterface d) {
+                guide.destroy();
+            }
+        });
+        dialog.show();
     }
 
     /**
@@ -1500,6 +1592,20 @@ public class MainActivity extends Activity {
         intro.setLineSpacing(3 * density, 1.0f);
         root.addView(intro);
 
+        // 首启就能离线看指引；用独立对话框叠加，关掉后仍回到这份表单，不丢输入
+        TextView guideLink = new TextView(this);
+        guideLink.setText("第一次用？查看使用指引 ›");
+        guideLink.setTextSize(13);
+        guideLink.setTextColor(0xFFF0B45C);
+        guideLink.setPadding(0, (int) (8 * density), 0, 0);
+        guideLink.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showGuideDialog();
+            }
+        });
+        root.addView(guideLink);
+
         TextView labelServer = new TextView(this);
         labelServer.setText("服务器地址（必填）");
         labelServer.setTextSize(13);
@@ -1739,6 +1845,7 @@ public class MainActivity extends Activity {
                         UpdateManager.channelOf(this.prefs)) + "（点击切换）",
                 "检查更新（当前 " + BuildConfig.VERSION_NAME + "）",
                 "回复完成通知：" + replyNotificationLabel(),
+                "使用指引",
                 "调试与诊断…"
         };
         new AlertDialog.Builder(this)
@@ -1822,6 +1929,9 @@ public class MainActivity extends Activity {
                 showReplyNotificationDialog();
                 return;
             case 14:
+                showGuideDialog();
+                return;
+            case 15:
                 showDebugMenu();
                 return;
             default:
@@ -3065,7 +3175,7 @@ public class MainActivity extends Activity {
                 InputStream in = null;
                 try {
                     // 文件名带时间戳：多次导出不会互相覆盖，便于对比不同场景
-                    String name = "tavernkeep-perf-"
+                    String name = "tavernium-perf-"
                             + new java.text.SimpleDateFormat("MMdd-HHmm", Locale.US)
                             .format(new java.util.Date()) + ".log";
                     in = new FileInputStream(src);
@@ -3122,17 +3232,15 @@ public class MainActivity extends Activity {
      * 返回键的唯一处理入口（原先 onBackPressed / onKeyDown / dispatchKeyEvent 三处
      * 各写一遍，改一处容易漏另一处，这里合并）。
      *
-     * <p>优先级：全屏视频 → 退出全屏；网页可后退 → 后退；到顶 → 打开菜单。
-     * 这样用户按返回的直觉（网页后退）和浏览器一致，而不是每次都弹菜单。</p>
+     * <p>返回键固定是菜单入口，不再跟随网页历史：SillyTavern 是单页应用，历史栈
+     * 时有时无，同一手势一会儿后退一会儿弹菜单，用户无法预期。需要网页后退时从
+     * 菜单第一项「返回上一级」走，路径唯一。</p>
+     *
+     * <p>唯一例外是全屏视频：此时返回先退出全屏，否则播放器没有其它退出方式。</p>
      */
     private void handleBackKey() {
         if (this.customView != null) {
             hideCustomView();
-            return;
-        }
-        WebView wv = this.webView;
-        if (wv != null && wv.canGoBack()) {
-            wv.goBack();
             return;
         }
         showMenuDialog();

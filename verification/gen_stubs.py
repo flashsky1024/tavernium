@@ -385,6 +385,10 @@ public class View {
     public void setMinimumHeight(int minHeight) {}
     public android.view.ViewGroup.LayoutParams getLayoutParams() { return null; }
     public void setOnTouchListener(OnTouchListener listener) {}
+    public void setOnClickListener(OnClickListener listener) {}
+    public interface OnClickListener {
+        void onClick(View v);
+    }
     public int getWidth() { return 0; }
     public interface OnTouchListener {
         boolean onTouch(View v, android.view.MotionEvent event);
@@ -769,6 +773,8 @@ public class WebSettings {
     public void setAllowContentAccess(boolean allow) {}
     public void setAllowFileAccessFromFileURLs(boolean flag) {}
     public void setAllowUniversalAccessFromFileURLs(boolean flag) {}
+    public void setSupportZoom(boolean support) {}
+    public void setBuiltInZoomControls(boolean enabled) {}
     public void setGeolocationEnabled(boolean flag) {}
     public void setUserAgentString(String ua) {}
     public String getUserAgentString() { return null; }

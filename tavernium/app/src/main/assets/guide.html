@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tavernium 使用指引</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0f1216;--panel:#151a21;--line:#242c37;--text:#e6ebf2;--muted:#94a1b2;
+    --accent:#f0b45c;--accent-dim:#3a2e1c;--code:#0b0f14;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text)}
+  body{font:15px/1.72 -apple-system,"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+       padding:20px 16px calc(28px + env(safe-area-inset-bottom))}
+  h1{font-size:22px;line-height:1.35;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 18px}
+  h2{font-size:16px;margin:26px 0 10px;padding-left:10px;border-left:3px solid var(--accent)}
+  p{margin:8px 0}
+  ul,ol{margin:8px 0;padding-left:22px}
+  li{margin:5px 0}
+  code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--code);
+       border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:#ffd894;
+       word-break:break-all}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 15px;margin:10px 0}
+  .card b{color:#fff}
+  .hint{border-left:3px solid var(--accent);background:var(--accent-dim);border-radius:8px;
+        padding:10px 13px;margin:12px 0;font-size:13.5px;color:#f4d9ae}
+  .steps{counter-reset:s;list-style:none;padding:0;margin:10px 0}
+  .steps li{counter-increment:s;position:relative;padding-left:38px;margin:12px 0}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:24px;height:24px;
+        border-radius:50%;background:var(--accent);color:#1a1206;font-weight:700;font-size:13px;
+        display:flex;align-items:center;justify-content:center}
+  .kv{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+  .kv:last-child{border-bottom:0}
+  .kv span:first-child{color:var(--muted);flex:0 0 84px}
+  .foot{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);
+        color:var(--muted);font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+
+<h1>Tavernium 使用指引</h1>
+<p class="sub">离线版 · 不联网也能看 · 按返回键关闭本页</p>
+
+<h2>打开菜单</h2>
+<p>任意页面按<strong>系统返回键</strong>，或从屏幕左/右边缘向内滑，菜单直接弹出。网页后退在菜单第一项「返回上一级」。</p>
+<div class="hint">Tavernium 没有独立的设置页，服务器、挂机、通知、更新、日志都在这个菜单里。</div>
+
+<h2>常用功能</h2>
+<div class="card">
+  <div class="kv"><span>修改服务器</span><span>主菜单「修改服务器地址」。局域网可用 <code>http://192.168.x.x:8000</code>，公网需 <code>https://</code>。</span></div>
+  <div class="kv"><span>后台保活</span><span>保持「后台暂停网页」为关；再到系统设置允许 Tavernium 后台活动。</span></div>
+  <div class="kv"><span>挂机防烧屏</span><span>主菜单「挂机模式」，进入黑屏省电状态，触摸或上滑唤醒。</span></div>
+  <div class="kv"><span>回复通知</span><span>主菜单「回复完成通知」。首次开启需允许系统通知权限。</span></div>
+  <div class="kv"><span>检查更新</span><span>主菜单「检查更新」。正式版与调试版是独立应用，可同时安装。</span></div>
+</div>
+
+<h2>反馈问题：导出日志</h2>
+<ol class="steps">
+  <li><b>打开主菜单</b>，点「调试与诊断…」。</li>
+  <li><b>把「性能监控」和「详细日志」都打开</b>，状态显示“开”。</li>
+  <li><b>彻底退出应用再重开</b>，按原来的步骤复现问题，例如打开某个角色、发送图片、切换页面。</li>
+  <li><b>回到菜单 → 调试与诊断 → 导出性能日志</b>。文件通常在 <code>下载/SillyTavern/</code>，名字以 <code>tavernium-perf-</code> 开头。</li>
+</ol>
+<div class="hint">把日志文件和以下信息一起发：手机型号、系统版本、Android System WebView 版本、问题发生时间和现象。</div>
+
+<h2>图片显示异常</h2>
+<div class="card">
+  <p><b>只有图片错位、尺寸不对</b>：多半是网页 CSS 与旧内核不兼容。</p>
+  <p><b>图片空白但文字正常</b>：检查图片是否为 <code>http://</code>（被 HTTPS 页面拦截）、AVIF/HEIC 格式，或图床防盗链。</p>
+  <p><b>按钮和脚本也失效</b>：可能 WebView 版本过低。设置 → 应用 → 显示系统应用 → Android System WebView 查看版本，建议 Chromium 100 以上。</p>
+</div>
+
+<h2>常见问题</h2>
+<div class="card">
+  <p><b>切后台回来就重载？</b>确认「后台暂停网页」为关，并在系统电池设置里允许后台活动。部分机型仍会深度冻结，属系统限制。</p>
+  <p><b>通知不响？</b>检查系统通知权限、电池优化白名单，以及酒馆页面是否仍在运行。</p>
+  <p><b>返回键没弹菜单？</b>正在全屏播放视频时，第一次返回只退出全屏，再按一次即可。</p>
+  <p><b>日志名是 tavernkeep-perf-？</b>2.0.1 及更早版本使用旧前缀，以实际导出文件为准。</p>
+</div>
+
+<p class="foot">Tavernium · AGPL-3.0 · github.com/flashsky1024/tavernium</p>
+
+</body>
+</html>

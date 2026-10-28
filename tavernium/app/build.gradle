@@ -3,7 +3,7 @@ plugins {
 }
 
 // 版本号单一来源：defaultConfig 与 APK 文件名共用，避免两处不一致
-def tkVersionName = '2.0.3'
+def tkVersionName = '2.0.4'
 
 // 签名凭据不写进仓库：keystore.properties 与 *.jks 均在 .gitignore 中。
 // 缺失时 release 构建会直接失败，而不是悄悄退回 debug 签名。
@@ -22,7 +22,7 @@ android {
         applicationId 'io.github.flashsky1024.tavernium'
         minSdk 24
         targetSdk 34
-        versionCode 55
+        versionCode 56
         versionName tkVersionName
         // release 与 debug 用不同 applicationId，两者可同时安装、数据互不干扰
         manifestPlaceholders = [appLabel: 'Tavernium']

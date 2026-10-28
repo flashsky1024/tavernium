@@ -82,7 +82,7 @@ def main():
     java_tests = ["CacheManagerTest", "PerfMonitorTest", "UpdateManagerTest",
                   "UpdateChannelTest", "MainActivitySafetyTest", "BridgeSessionTest",
                   "ReplyNotifierTest", "UpdateSecurityTest", "MainBridgeTest",
-                  "IdleControllerTest"]
+                  "IdleControllerTest", "UrlKitCompatTest"]
     for name in java_tests:
         run(name, ["java", "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED",
                    "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",

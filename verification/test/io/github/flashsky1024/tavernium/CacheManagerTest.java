@@ -1169,6 +1169,11 @@ public class CacheManagerTest {
         check("全屏视频仍可退出", back.contains("hideCustomView()"));
         check("菜单保留网页后退入口", src.contains("\"返回上一级\""));
 
+        // 401 并发重试：不能再用单布尔，否则第二个并发请求会被误判成密码错误。
+        check("401 重试使用窗口计数", src.contains("AUTH_RETRY_LIMIT")
+                && src.contains("authRetryCount") && !src.contains("private boolean authRetried"));
+        check("401 计数在导航时重置", src.contains("authRetryWindowStart = 0L"));
+
         check("主菜单有使用指引入口", src.contains("\"使用指引\""));
         check("指引走内置页而非外链", src.contains("showGuideDialog()")
                 && src.contains("file:///android_asset/guide.html"));

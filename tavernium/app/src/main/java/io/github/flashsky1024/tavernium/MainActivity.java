@@ -212,7 +212,17 @@ public class MainActivity extends Activity {
     private volatile String authPass = EMPTY;
     private volatile String serverUrl = EMPTY;
 
-    private boolean authRetried = false;
+    /**
+     * 401 自动重试的窗口计数。
+     *
+     * <p>原来用单个布尔 {@code authRetried}：页面加载时主文档、插件脚本和图片会并发
+     * 收到 401，第一个请求 proceed 后布尔置 true，其余请求全部被当成"密码错误"直接
+     * 弹窗——即使凭据完全正确。改成时间窗口内允许一批并发重试，超过上限才提示。</p>
+     */
+    private static final long AUTH_RETRY_WINDOW_MS = 3000L;
+    private static final int AUTH_RETRY_LIMIT = 12;
+    private int authRetryCount = 0;
+    private long authRetryWindowStart = 0L;
     private boolean authDialogShowing = false;
     private boolean webViewPaused = false;
     /** 当前是否处于 resumed 状态：决定渲染进程死亡时当场重建还是等回前台。 */
@@ -1221,7 +1231,8 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPageStarted(WebView webView, String str, Bitmap bitmap) {
-            MainActivity.this.authRetried = false;
+            MainActivity.this.authRetryCount = 0;
+            MainActivity.this.authRetryWindowStart = 0L;
             MainActivity.this.bridgeSession.beginDocument(str, MainActivity.this.serverUrl);
             if (MainActivity.this.replyNotifier != null) {
                 MainActivity.this.replyNotifier.resetDocument();
@@ -1370,14 +1381,21 @@ public class MainActivity extends Activity {
                 return;
             }
             String user = MainActivity.this.authUser;
-            if (!user.isEmpty() && !MainActivity.this.authRetried) {
-                MainActivity.this.authRetried = true;
-                // 只记 host/realm，绝不记录凭据
-                PerfLog.i(TAG, "http auth: retry with saved user for " + str + " realm=" + str2);
+            long now = SystemClock.elapsedRealtime();
+            if (now - MainActivity.this.authRetryWindowStart > AUTH_RETRY_WINDOW_MS) {
+                MainActivity.this.authRetryWindowStart = now;
+                MainActivity.this.authRetryCount = 0;
+            }
+            if (!user.isEmpty() && MainActivity.this.authRetryCount < AUTH_RETRY_LIMIT) {
+                MainActivity.this.authRetryCount++;
+                // 只记 host/realm/次数，绝不记录凭据
+                PerfLog.i(TAG, "http auth: retry with saved user for " + str + " realm=" + str2
+                        + " (" + MainActivity.this.authRetryCount + "/" + AUTH_RETRY_LIMIT + ")");
                 httpAuthHandler.proceed(user, MainActivity.this.authPass);
             } else {
                 PerfLog.w(TAG, "http auth: failed for " + str + " realm=" + str2
-                        + " (hasSaved=" + !user.isEmpty() + ")");
+                        + " (hasSaved=" + !user.isEmpty()
+                        + ", attempts=" + MainActivity.this.authRetryCount + ")");
                 httpAuthHandler.cancel();
                 MainActivity.this.showAuthDialog(!user.isEmpty());
             }
@@ -1535,7 +1553,8 @@ public class MainActivity extends Activity {
                                 .putString(PREF_PASS, passInput.getText().toString())
                                 .apply();
                         MainActivity.this.reloadPrefs();
-                        MainActivity.this.authRetried = false;
+                        MainActivity.this.authRetryCount = 0;
+            MainActivity.this.authRetryWindowStart = 0L;
                         // WebView 内部会缓存 HTTP 认证凭据，而清除它的公开 API
                         // （WebViewDatabase.clearHttpAuthUsernamePassword）在 API 35 已移除。
                         // 这里用空值覆盖该 host 的缓存；preSeedHttpAuth 随后会写入新凭据。

@@ -223,6 +223,8 @@ cd verification && python3 run_verify.py
 
 ## 许可
 
+Copyright (C) 2026 flashsky1024
+
 [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html)。用大白话说：
 
 - 下载安装、日常使用：没有任何义务
@@ -232,6 +234,6 @@ cd verification && python3 run_verify.py
 
 选 AGPL 的原因：这个项目本身就是「把别人的 Web 服务包起来」，如果将来有人把它改成托管服务对外提供，改动应该回流到社区。
 
-以上只是通俗解释，具体以协议原文为准。
+以上只是通俗解释，完整条款见仓库根目录的 [LICENSE](LICENSE) 文件。
 
 作者保留一切最终解释权；作者的声明与授权，其效力高于本协议。

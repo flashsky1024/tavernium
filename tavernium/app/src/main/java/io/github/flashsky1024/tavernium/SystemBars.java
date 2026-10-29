@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 flashsky1024
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
 package io.github.flashsky1024.tavernium;
 
 import android.os.Build;

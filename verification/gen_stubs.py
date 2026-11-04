@@ -345,6 +345,15 @@ public class Bitmap {}
 package android.graphics;
 public class Color { public static final int BLACK = -16777216; public static final int WHITE = -1; public static final int TRANSPARENT = 0; public static int parseColor(String colorString) { return 0; } }
 """,
+"android/graphics/Insets.java": """
+package android.graphics;
+public class Insets {
+    public int left;
+    public int top;
+    public int right;
+    public int bottom;
+}
+""",
 "android/graphics/Paint.java": """
 package android.graphics;
 public class Paint {}
@@ -384,6 +393,14 @@ public class View {
     public int getSystemUiVisibility() { return systemUiVisibility; }
     public ViewGroup getParent() { return parent; }
     public void setPadding(int left, int top, int right, int bottom) {}
+    public int getPaddingLeft() { return 0; }
+    public int getPaddingTop() { return 0; }
+    public int getPaddingRight() { return 0; }
+    public int getPaddingBottom() { return 0; }
+    public void setOnApplyWindowInsetsListener(OnApplyWindowInsetsListener listener) {}
+    public interface OnApplyWindowInsetsListener {
+        WindowInsets onApplyWindowInsets(View v, WindowInsets insets);
+    }
     public void setMinimumHeight(int minHeight) {}
     public android.view.ViewGroup.LayoutParams getLayoutParams() { return null; }
     public void setOnTouchListener(OnTouchListener listener) {}
@@ -434,6 +451,7 @@ public class Window {
     public View getDecorView() { return null; }
     public void addContentView(View view, ViewGroup.LayoutParams params) {}
     public WindowInsetsController getInsetsController() { return null; }
+    public void setDecorFitsSystemWindows(boolean decorFitsSystemWindows) {}
     public WindowManager.LayoutParams getAttributes() { return new WindowManager.LayoutParams(); }
     public void setAttributes(WindowManager.LayoutParams params) {}
     // 注意：真实 SDK 中 Window 没有 setFrameRate —— 帧率 API 在 Surface(View 层为 API 35+ 的
@@ -446,7 +464,10 @@ public class WindowInsets {
     public static class Type {
         public static int systemBars() { return 3; }
         public static int navigationBars() { return 2; }
+        public static int statusBars() { return 1; }
+        public static int ime() { return 8; }
     }
+    public android.graphics.Insets getInsets(int typeMask) { return new android.graphics.Insets(); }
 }
 """,
 "android/view/WindowInsetsController.java": """

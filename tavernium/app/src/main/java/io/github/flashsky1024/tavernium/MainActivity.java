@@ -318,6 +318,7 @@ public class MainActivity extends Activity {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
         applyCutoutMode();
+        applyEdgeToEdge();
         applyKeepScreenOn(this.prefs.getBoolean(PREF_KEEP_SCREEN_ON, true));
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true);
@@ -388,10 +389,11 @@ public class MainActivity extends Activity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("已更新到 " + BuildConfig.VERSION_NAME)
-                .setMessage("• 返回键固定打开菜单，网页后退移到菜单第一项「返回上一级」\n"
-                        + "• 新增内置使用指引，不联网也能看\n"
-                        + "• 导出的日志文件名改为 tavernium-perf-\n\n"
-                        + "使用指引随时可以从主菜单打开。")
+                .setMessage("• 修掉挖孔屏顶部的黑边，内容真正铺满整屏\n"
+                        + "• 新增「挖孔屏适配」，可选自适应 / 始终占用 / 避开挖孔\n"
+                        + "• 支持 Tailscale 等 100.64.x.x 组网地址\n"
+                        + "• 主菜单精简，其余项收进「高级设置」\n\n"
+                        + "挖孔屏适配在「高级设置」里，默认自适应。")
                 .setPositiveButton("知道了", null)
                 .setNeutralButton("查看指引", new DialogInterface.OnClickListener() {
                     @Override
@@ -501,6 +503,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         buildIdleOverlay(container);
         setContentView(container);
+        installImeInsets(container);
 
         WebSettings settings = this.webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -945,6 +948,68 @@ public class MainActivity extends Activity {
         }
         lp.layoutInDisplayCutoutMode = cutout;
         window.setAttributes(lp);
+        // 反馈"还是有黑边"时，这条日志能区分是档位没设上、还是窗口没铺满。
+        PerfLog.i(TAG, "cutout=" + cutout + " sdk=" + Build.VERSION.SDK_INT);
+    }
+
+    /**
+     * 让内容真正铺到系统栏下面。
+     *
+     * <p>{@code FLAG_FULLSCREEN} 只是把状态栏藏起来，窗口仍然按"稳定插入区"布局：状态栏
+     * 消失后系统依旧保留那条高度的空白，于是顶部露出窗口背景色（#18191c），看起来就是
+     * 一条黑边。挖孔屏上这条黑边还叠加了 cutout 安全区，视觉上更明显。</p>
+     *
+     * <p>{@code setDecorFitsSystemWindows(false)}（API 30+）等价于旧版的
+     * {@code LAYOUT_FULLSCREEN | LAYOUT_HIDE_NAVIGATION}：告诉系统不要再给根视图加
+     * padding，内容自己负责。只声明 cutout 模式而不做这一步，挖孔屏依旧会留黑边。</p>
+     */
+    private void applyEdgeToEdge() {
+        Window window = getWindow();
+        if (window == null) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false);
+        } else {
+            View decor = window.getDecorView();
+            decor.setSystemUiVisibility(decor.getSystemUiVisibility()
+                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
+    }
+
+    /**
+     * 根视图不再 fit system windows 之后，系统不会为了输入法缩小窗口，键盘会直接盖住
+     * 页面底部的输入框。这里把 IME 高度换算成底部 padding，交给 WebView 重新布局。
+     *
+     * <p>只在 API 30+ 生效：更早的系统仍然走 {@code adjustResize}，重复处理会让页面
+     * 被顶两次。</p>
+     */
+    private void installImeInsets(final View root) {
+        if (root == null || Build.VERSION.SDK_INT < 30) {
+            return;
+        }
+        root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public WindowInsets onApplyWindowInsets(View view, WindowInsets insets) {
+                int ime = 0;
+                int nav = 0;
+                try {
+                    ime = insets.getInsets(WindowInsets.Type.ime()).bottom;
+                    nav = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
+                } catch (Throwable ignored) {
+                }
+                // 键盘没弹出时也要给手势条留高度，否则页面最底部的输入框会压在
+                // 导航条下面点不到。键盘弹出后 IME 通常比导航栏高，取两者最大值即可。
+                int bottom = Math.max(ime, nav);
+                if (view.getPaddingBottom() != bottom) {
+                    view.setPadding(view.getPaddingLeft(), view.getPaddingTop(),
+                            view.getPaddingRight(), bottom);
+                }
+                return insets;
+            }
+        });
     }
 
     /**
@@ -3363,12 +3428,18 @@ public class MainActivity extends Activity {
             try {
                 WindowInsetsController controller = window.getInsetsController();
                 if (controller != null) {
-                    controller.show(WindowInsets.Type.systemBars());
+                    // 只收回导航栏；状态栏本来就是常驻隐藏的，一起 show 会让顶部重新
+                    // 出现一条系统栏，退出全屏视频后看着像"掉出全屏"。
+                    controller.show(WindowInsets.Type.navigationBars());
+                    controller.hide(WindowInsets.Type.statusBars());
                 }
             } catch (Exception unused) {
             }
         } else {
-            window.getDecorView().setSystemUiVisibility(0);
+            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_FULLSCREEN);
         }
     }
 

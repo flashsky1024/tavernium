@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- API 28+ 才有挖孔概念。主题里先给一个 shortEdges 兜底：
+         即使运行时的 applyCutoutMode() 因为 ROM 差异没生效，窗口也默认允许进入
+         短边挖孔区，不会一启动就留一条状态栏高度的黑边。用户选「避开挖孔」时，
+         运行时会再覆盖成 NEVER。 -->
+    <style name="Theme.AppCompat.NoActionBar.Fullscreen" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:colorBackground">@color/launch_background</item>
+        <item name="android:windowBackground">@color/launch_background</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

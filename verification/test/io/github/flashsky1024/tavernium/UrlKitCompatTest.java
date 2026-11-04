@@ -21,7 +21,45 @@ public final class UrlKitCompatTest {
         rejections();
         hostLookup();
         updateChain();
+        cgnat();
+        trustedOrigins();
         System.out.println("PASSED: " + passed + " FAILED: 0");
+    }
+
+    /** RFC 6598 共享地址空间：Tailscale 等组网工具默认分配这一段。 */
+    private static void cgnat() {
+        check("CGNAT 起始地址允许", UrlKit.isPrivateHost("100.64.0.1"));
+        check("CGNAT 中段允许", UrlKit.isPrivateHost("100.101.102.103"));
+        check("CGNAT 结束地址允许", UrlKit.isPrivateHost("100.127.255.254"));
+        check("CGNAT 上方一个地址拒绝", !UrlKit.isPrivateHost("100.128.0.1"));
+        check("CGNAT 下方一个地址拒绝", !UrlKit.isPrivateHost("100.63.255.254"));
+        check("Tailscale http 入口允许",
+                UrlKit.isAllowedServerUrl("http://100.101.102.103:8000/"));
+        check("Tailscale 子资源不被拦",
+                !UrlKit.isBlockedPublicHttp("http://100.101.102.103:8000/user/images/x.png"));
+        check("Tailscale 更新链路允许",
+                UrlKit.isAllowedUpdateUrl("http://100.101.102.103:8000/api/apps/tavernium/releases.json"));
+        check("100.0.0.1 仍按公网拒绝", !UrlKit.isPrivateHost("100.0.0.1"));
+        check("100.200.0.1 仍按公网拒绝", !UrlKit.isPrivateHost("100.200.0.1"));
+    }
+
+    /** 显式信任的明文 origin：精确到端口，不按网段放宽。 */
+    private static void trustedOrigins() {
+        java.util.Set<String> trusted = new java.util.HashSet<>();
+        trusted.add(UrlKit.originOf("http://203.0.113.9:8000/"));
+        check("信任后入口放行",
+                UrlKit.isAllowedServerUrl("http://203.0.113.9:8000/chat", trusted));
+        check("信任后子资源不拦",
+                !UrlKit.isBlockedPublicHttp("http://203.0.113.9:8000/a.js", trusted));
+        check("同 IP 其它端口不放宽",
+                !UrlKit.isAllowedServerUrl("http://203.0.113.9:9000/", trusted));
+        check("未信任的域名不因信任列表放行",
+                !UrlKit.isAllowedServerUrl("http://evil.example.com/", trusted));
+        check("空信任集等同默认规则",
+                !UrlKit.isAllowedServerUrl("http://203.0.113.9:8000/",
+                        java.util.Collections.<String>emptySet()));
+        check("信任不放宽更新链路的加密要求",
+                !UrlKit.isAllowedUpdateUrl("http://203.0.113.9:8000/a.apk"));
     }
 
     /** 本次要修的场景：path/query 里的字符不再影响 origin。 */

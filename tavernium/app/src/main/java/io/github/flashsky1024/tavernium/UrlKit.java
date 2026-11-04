@@ -5,7 +5,9 @@
 
 package io.github.flashsky1024.tavernium;
 
+import java.util.Collections;
 import java.util.Locale;
+import java.util.Set;
 import java.net.URI;
 
 /**
@@ -153,14 +155,39 @@ final class UrlKit {
 
     /** 服务器入口：公网使用 HTTPS，HTTP 只接受回环/私有 IP 或 localhost。 */
     static boolean isAllowedServerUrl(String url) {
-        return !originOf(url).isEmpty()
-                && (isHttps(url) || isPrivateHost(hostOf(url)));
+        return isAllowedServerUrl(url, Collections.<String>emptySet());
+    }
+
+    /**
+     * 服务器入口，附带用户显式信任的明文 origin。
+     *
+     * <p>信任是<b>精确到 origin</b> 的（scheme + host + port），不按网段放宽，
+     * 也不会因为信任过一次就把整台服务器上的任意端口都放过。这样即便用户在
+     * 陌生网络里误点了一次「仍然使用」，影响面也只有一个地址。</p>
+     */
+    static boolean isAllowedServerUrl(String url, Set<String> trustedOrigins) {
+        if (!originOf(url).isEmpty() && (isHttps(url) || isPrivateHost(hostOf(url)))) {
+            return true;
+        }
+        if (trustedOrigins == null || trustedOrigins.isEmpty() || url == null) {
+            return false;
+        }
+        if (!url.regionMatches(true, 0, "http://", 0, 7)) {
+            return false;
+        }
+        String origin = originOf(url);
+        return !origin.isEmpty() && trustedOrigins.contains(origin);
     }
 
     /** 不将域名的 DNS 解析结果作为内网授权；data/blob/about 不在此处拦截。 */
     static boolean isBlockedPublicHttp(String url) {
+        return isBlockedPublicHttp(url, Collections.<String>emptySet());
+    }
+
+    /** 同 {@link #isBlockedPublicHttp(String)}，但把用户显式信任的 origin 视为放行。 */
+    static boolean isBlockedPublicHttp(String url, Set<String> trustedOrigins) {
         return url != null && url.regionMatches(true, 0, "http:", 0, 5)
-                && !isAllowedServerUrl(url);
+                && !isAllowedServerUrl(url, trustedOrigins);
     }
 
     /**
@@ -192,9 +219,10 @@ final class UrlKit {
     /**
      * 是否回环/私有网段主机。
      *
-     * <p>IPv4 只覆盖 RFC1918 三段 + 回环 + link-local；IPv6 覆盖 ::1 与 fc00::/7（ULA）、
-     * fe80::/10（link-local）。这些地址只可能出现在用户自己的网络里，
-     * 明文传输不经过运营商链路，可以放行。</p>
+     * <p>IPv4 覆盖 RFC1918 三段 + 回环 + link-local + RFC 6598 共享地址空间
+     * （100.64.0.0/10，Tailscale、ZeroTier 等组网工具的默认网段）；IPv6 覆盖 ::1
+     * 与 fc00::/7（ULA）、fe80::/10（link-local）。这些地址都不可在公网路由，
+     * 只可能出现在用户的私有网络里，明文传输不经过运营商链路，可以放行。</p>
      */
     static boolean isPrivateHost(String host) {
         if (host == null || host.isEmpty()) {
@@ -247,6 +275,11 @@ final class UrlKit {
             return true;
         }
         if (v[0] == 169 && v[1] == 254) {
+            return true;
+        }
+        // 100.64.0.0/10 —— RFC 6598 共享地址空间（运营商级 NAT）。Tailscale、
+        // ZeroTier 等组网工具默认由此分配地址，同样是私有链路。
+        if (v[0] == 100 && v[1] >= 64 && v[1] <= 127) {
             return true;
         }
         // 172.16.0.0 – 172.31.255.255

@@ -69,8 +69,11 @@ import java.net.URL;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.nio.charset.StandardCharsets;
@@ -103,7 +106,7 @@ public class MainActivity extends Activity {
     private static final String EMPTY = "";
     private static final String DEFAULT_SERVER_URL = "";
     private static final String SERVER_URL_HELP =
-            "公网服务器请使用 https://；http:// 仅用于局域网 IP 或 localhost。";
+            "公网地址需要 https://；http:// 仅限私有网络（含 Tailscale 等组网）或手动信任的地址。";
     private static final int FILE_CHOOSER_REQUEST = 1001;
     private static final int REPLY_PERMISSION_REQUEST = 1002;
     private static final String PREFS_NAME = "tavernkeep_prefs";
@@ -118,6 +121,13 @@ public class MainActivity extends Activity {
     private static final String PREF_REPLY_NOTIFICATIONS = "reply_notifications";
     /** jsDelivr 加速：开启后用第三方镜像替换 cdn.jsdelivr.net（仅静态资源）。 */
     private static final String PREF_JSD_ACCEL = "jsd_accel";
+    /** 挖孔屏适配：0 自适应（内容延伸到短边）/ 1 强制铺满 / 2 避开挖孔。 */
+    private static final String PREF_CUTOUT_MODE = "cutout_mode";
+    private static final int CUTOUT_ADAPTIVE = 0;
+    private static final int CUTOUT_ALWAYS = 1;
+    private static final int CUTOUT_NEVER = 2;
+    /** 用户手动信任的明文 http origin（精确到 scheme://host:port）。 */
+    private static final String PREF_TRUSTED_HTTP = "trusted_http_origins";
     private static final String JSD_MIRROR_BASE = "https://jsd.onmicrosoft.cn";
     private static final String JSD_PROBE_PATH = "/npm/jquery@3.7.1/package.json";
 
@@ -216,6 +226,8 @@ public class MainActivity extends Activity {
     private volatile String authUser = EMPTY;
     private volatile String authPass = EMPTY;
     private volatile String serverUrl = EMPTY;
+    /** 用户显式信任的明文 http origin：整体替换而不原地修改，配合 volatile 保证可见。 */
+    private volatile Set<String> trustedHttpOrigins = Collections.emptySet();
 
     /**
      * 401 自动重试的窗口计数。
@@ -305,6 +317,7 @@ public class MainActivity extends Activity {
         this.cacheManager.setCredentialOrigin(this.serverUrl);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        applyCutoutMode();
         applyKeepScreenOn(this.prefs.getBoolean(PREF_KEEP_SCREEN_ON, true));
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true);
@@ -812,15 +825,68 @@ public class MainActivity extends Activity {
         this.authUser = this.prefs.getString(PREF_USER, EMPTY);
         this.authPass = this.prefs.getString(PREF_PASS, EMPTY);
         this.serverUrl = this.prefs.getString(PREF_SERVER_URL, DEFAULT_SERVER_URL);
+        reloadTrustedOrigins();
         if (this.cacheManager != null) {
             this.cacheManager.setCredentialOrigin(this.serverUrl);
         }
     }
 
+    /**
+     * 读取用户手动信任的明文 origin。
+     *
+     * <p>{@link SharedPreferences#getStringSet} 返回的集合不保证可修改，也不保证
+     * 后续读取稳定，所以复制一份再包成不可变集合——这份数据会被 WebView 网络线程
+     * 并发读取，整体替换比原地修改安全。</p>
+     */
+    private void reloadTrustedOrigins() {
+        Set<String> stored = this.prefs == null ? null : this.prefs.getStringSet(PREF_TRUSTED_HTTP, null);
+        this.trustedHttpOrigins = (stored == null || stored.isEmpty())
+                ? Collections.<String>emptySet()
+                : Collections.unmodifiableSet(new HashSet<>(stored));
+    }
+
+    /** 地址是否可加载：默认策略放行，或用户显式信任过的明文 origin。 */
+    private boolean isAllowedServerAddress(String url) {
+        return UrlKit.isAllowedServerUrl(url, this.trustedHttpOrigins);
+    }
+
+    /** 记住一个用户确认过的明文 origin；返回 true 表示新增成功。 */
+    private boolean rememberTrustedOrigin(String url) {
+        String origin = UrlKit.originOf(url);
+        if (origin.isEmpty()) {
+            return false;
+        }
+        Set<String> next = new HashSet<>(this.trustedHttpOrigins);
+        if (!next.add(origin)) {
+            return false;
+        }
+        this.trustedHttpOrigins = Collections.unmodifiableSet(next);
+        this.prefs.edit().putStringSet(PREF_TRUSTED_HTTP, new HashSet<>(next)).apply();
+        PerfLog.i(TAG, "trusted http origin: " + origin);
+        return true;
+    }
+
+    private void forgetTrustedOrigin(String origin) {
+        if (origin == null || origin.isEmpty()) {
+            return;
+        }
+        Set<String> next = new HashSet<>(this.trustedHttpOrigins);
+        if (!next.remove(origin)) {
+            return;
+        }
+        this.trustedHttpOrigins = Collections.unmodifiableSet(next);
+        this.prefs.edit().putStringSet(PREF_TRUSTED_HTTP, new HashSet<>(next)).apply();
+    }
+
+    private void clearTrustedOrigins() {
+        this.trustedHttpOrigins = Collections.<String>emptySet();
+        this.prefs.edit().remove(PREF_TRUSTED_HTTP).apply();
+    }
+
     /** 同时检查持久化的旧地址和新输入，避免只有设置界面做了限制。 */
     private void loadServerPage(WebView target, String url) {
         if (target == null) return;
-        if (UrlKit.isAllowedServerUrl(url)) {
+        if (isAllowedServerAddress(url)) {
             target.loadUrl(url);
             return;
         }
@@ -833,6 +899,52 @@ public class MainActivity extends Activity {
                 }
             }, 400L);
         }
+    }
+
+    /**
+     * 挖孔屏适配。
+     *
+     * <p>全屏窗口如果从不声明 cutout 模式，Android 9+ 按 {@code NEVER} 处理：内容不进入
+     * 挖孔区，系统把整条状态栏区域填成黑条。用户在 ROM 里选了"显示前置摄像头"时，
+     * 系统不再帮忙遮挡，黑条就完整暴露出来，表现为屏幕上端一大块区域什么都不显示。</p>
+     *
+     * <p>默认 {@code SHORT_EDGES}：竖屏内容延伸到上下短边，挖孔两侧也能显示内容，
+     * 只有物理孔位本身遮挡一小块。另留两档给不同 ROM 兜底——ALWAYS 连横屏长边一起铺满，
+     * NEVER 则回到旧行为。</p>
+     */
+    private void applyCutoutMode() {
+        if (Build.VERSION.SDK_INT < 28) {
+            // Android 8.1 及以前没有 DisplayCutout 概念，窗口本来就是完整矩形。
+            return;
+        }
+        int mode = this.prefs == null
+                ? CUTOUT_ADAPTIVE
+                : this.prefs.getInt(PREF_CUTOUT_MODE, CUTOUT_ADAPTIVE);
+        int cutout;
+        switch (mode) {
+            case CUTOUT_ALWAYS:
+                // ALWAYS 是 API 30 才加的常量；28/29 上退回短边延伸，
+                // 语义最接近，也不会让旧系统收到不认识的枚举值。
+                cutout = Build.VERSION.SDK_INT >= 30
+                        ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                        : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                break;
+            case CUTOUT_NEVER:
+                cutout = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER;
+                break;
+            default:
+                cutout = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
+        Window window = getWindow();
+        if (window == null) {
+            return;
+        }
+        WindowManager.LayoutParams lp = window.getAttributes();
+        if (lp.layoutInDisplayCutoutMode == cutout) {
+            return;
+        }
+        lp.layoutInDisplayCutoutMode = cutout;
+        window.setAttributes(lp);
     }
 
     /**
@@ -1416,7 +1528,8 @@ public class MainActivity extends Activity {
         public WebResourceResponse shouldInterceptRequest(WebView webView,
                                                           WebResourceRequest request) {
             if (request != null && request.getUrl() != null
-                    && UrlKit.isBlockedPublicHttp(request.getUrl().toString())) {
+                    && UrlKit.isBlockedPublicHttp(request.getUrl().toString(),
+                            MainActivity.this.trustedHttpOrigins)) {
                 PerfMonitor.count("net.cleartext.blocked");
                 return new WebResourceResponse("text/plain", "UTF-8", 403, "HTTPS Required",
                         java.util.Collections.<String, String>emptyMap(),
@@ -1710,26 +1823,78 @@ public class MainActivity extends Activity {
                             showOnboardingDialog();
                             return;
                         }
-                        if (!UrlKit.isAllowedServerUrl(url)) {
-                            Toast.makeText(MainActivity.this, SERVER_URL_HELP, Toast.LENGTH_LONG).show();
-                            showOnboardingDialog();
+                        final String candidate = url;
+                        if (!isAllowedServerAddress(candidate)) {
+                            confirmTrustHttp(candidate, new Runnable() {
+                                @Override
+                                public void run() {
+                                    commitOnboardingServer(candidate,
+                                            inputUser.getText().toString().trim(),
+                                            inputPass.getText().toString());
+                                }
+                            }, new Runnable() {
+                                @Override
+                                public void run() {
+                                    showOnboardingDialog();
+                                }
+                            });
                             return;
                         }
-                        if (!url.endsWith("/")) {
-                            url = url + "/";
-                        }
-                        MainActivity.this.prefs.edit()
-                                .putString(PREF_SERVER_URL, url)
-                                .putString(PREF_USER, inputUser.getText().toString().trim())
-                                .putString(PREF_PASS, inputPass.getText().toString())
-                                .apply();
-                        MainActivity.this.reloadPrefs();
-                        WebView wv = MainActivity.this.webView;
-                        if (wv != null) {
-                            loadServerPage(wv, url);
-                        }
-                        // 配置完成后再提白名单：首次安装时打断引导没有意义
-                        MainActivity.this.maybePromptBatteryOptimization();
+                        commitOnboardingServer(candidate,
+                                inputUser.getText().toString().trim(),
+                                inputPass.getText().toString());
+                    }
+                })
+                .show();
+    }
+
+    /** 首次引导的落盘：写偏好、加载页面、提示电池优化。 */
+    private void commitOnboardingServer(String url, String user, String pass) {
+        String normalized = url.endsWith("/") ? url : url + "/";
+        this.prefs.edit()
+                .putString(PREF_SERVER_URL, normalized)
+                .putString(PREF_USER, user)
+                .putString(PREF_PASS, pass)
+                .apply();
+        reloadPrefs();
+        WebView wv = this.webView;
+        if (wv != null) {
+            loadServerPage(wv, normalized);
+        }
+        // 配置完成后再提白名单：首次安装时打断引导没有意义
+        maybePromptBatteryOptimization();
+    }
+
+    /**
+     * 明文 http 且不在私有网段时，交给用户显式确认。
+     *
+     * <p>默认策略不放开：明文链路上的任何一跳都能改页面内容、读聊天记录。
+     * 但 Tailscale、ZeroTier、自建反代这些场景确实只能用 http，所以留一次确认机会；
+     * 记住的是精确 origin（scheme + host + port），不是整段网络。</p>
+     */
+    private void confirmTrustHttp(final String url, final Runnable onProceed, final Runnable onCancel) {
+        final String origin = UrlKit.originOf(url);
+        if (origin.isEmpty()) {
+            Toast.makeText(this, SERVER_URL_HELP, Toast.LENGTH_LONG).show();
+            onCancel.run();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("使用明文连接？")
+                .setMessage("这个地址不在局域网或组网工具的私有网段内，连接内容可能被同一网络中的"
+                        + "其他人读取或篡改。\n\n" + origin + "\n\n"
+                        + "如果这是你自己用 Tailscale、ZeroTier 或反向代理搭的私有链路，可以继续。")
+                .setPositiveButton("仍然使用", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        rememberTrustedOrigin(url);
+                        onProceed.run();
+                    }
+                })
+                .setNegativeButton("取消", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        onCancel.run();
                     }
                 })
                 .show();
@@ -1765,24 +1930,37 @@ public class MainActivity extends Activity {
                             showServerDialog();
                             return;
                         }
-                        if (!UrlKit.isAllowedServerUrl(url)) {
-                            Toast.makeText(MainActivity.this, SERVER_URL_HELP, Toast.LENGTH_LONG).show();
-                            showServerDialog();
+                        final String candidate = url;
+                        if (!isAllowedServerAddress(candidate)) {
+                            confirmTrustHttp(candidate, new Runnable() {
+                                @Override
+                                public void run() {
+                                    commitServerUrl(candidate);
+                                }
+                            }, new Runnable() {
+                                @Override
+                                public void run() {
+                                    showServerDialog();
+                                }
+                            });
                             return;
                         }
-                        if (!url.endsWith("/")) {
-                            url = url + "/";
-                        }
-                        MainActivity.this.prefs.edit().putString(PREF_SERVER_URL, url).apply();
-                        MainActivity.this.reloadPrefs();
-                        WebView wv = MainActivity.this.webView;
-                        if (wv != null) {
-                            loadServerPage(wv, url);
-                        }
+                        commitServerUrl(candidate);
                     }
                 })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    /** 设置页保存服务器地址：补结尾斜杠、落盘、重新加载。 */
+    private void commitServerUrl(String url) {
+        String normalized = url.endsWith("/") ? url : url + "/";
+        this.prefs.edit().putString(PREF_SERVER_URL, normalized).apply();
+        reloadPrefs();
+        WebView wv = this.webView;
+        if (wv != null) {
+            loadServerPage(wv, normalized);
+        }
     }
 
     /**
@@ -1849,46 +2027,35 @@ public class MainActivity extends Activity {
         }
         boolean keepOn = this.prefs.getBoolean(PREF_KEEP_SCREEN_ON, true);
         boolean pauseBg = this.prefs.getBoolean(PREF_PAUSE_IN_BACKGROUND, false);
-        int frameRate = this.prefs.getInt(PREF_FRAME_RATE, 0);
-        int idleMode = idleMode();
-        // 主菜单只留"日常会用到"的项；诊断/日志/网络排查收进二级菜单，
-        // 避免一次列出十几条让常用项被淹没。
+        // 主菜单只放"打开就想点"的入口。帧率、加速、更新、通知、诊断这些设一次
+        // 就不再动的项统一收进「高级设置」——否则一次列出十六项，常用的前几项
+        // 被淹没，返回键菜单也越来越像设置页。
         String[] items = new String[]{
                 "返回上一级",
                 keepOn ? "屏幕常亮：开（点击关闭省电）" : "屏幕常亮：关（点击开启）",
                 pauseBg ? "后台暂停网页：开（点击切回复旦）" : "后台暂停网页：关（点击开启省电）",
+                "挂机模式：" + idleModeLabel() + "（点击切换）",
+                "重新加载页面",
                 "修改服务器地址",
                 "重新输入账号密码",
                 "退出登录" + (this.loginModeNative
                         ? "（SillyTavern 账号）" : "（Basic Auth / 无密码）"),
-                "清空网页缓存",
-                "重新加载页面",
-                idleMode != IDLE_OFF
-                        ? "渲染帧率：" + frameRateLabel(frameRate) + "（挂机中，实际 "
-                        + frameRateLabel(effectiveFrameRate()) + "）"
-                        : "渲染帧率：" + frameRateLabel(frameRate) + "（点击修改）",
-                "挂机模式：" + idleModeLabel() + "（点击切换）",
-                "jsDelivr 加速：" + jsdAccelLabel() + "（点击设置）",
-                "更新渠道：" + UpdateManager.channelLabel(
-                        UpdateManager.channelOf(this.prefs)) + "（点击切换）",
-                "检查更新（当前 " + BuildConfig.VERSION_NAME + "）",
-                "回复完成通知：" + replyNotificationLabel(),
                 "使用指引",
-                "调试与诊断…"
+                "高级设置…"
         };
         new AlertDialog.Builder(this)
                 .setTitle("Tavernium")
                 .setItems(items, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialogInterface, int i) {
-                        onMenuItemSelected(i);
+                        onMainMenuSelected(i);
                     }
                 })
                 .setNegativeButton("取消", null)
                 .show();
     }
 
-    private void onMenuItemSelected(int i) {
+    private void onMainMenuSelected(int i) {
         WebView wv;
         switch (i) {
             case 0:
@@ -1913,15 +2080,71 @@ public class MainActivity extends Activity {
                         : "后台保持网页运行（不影响后台生成）", Toast.LENGTH_SHORT).show();
                 return;
             case 3:
-                showServerDialog();
+                showIdleModeDialog();
                 return;
             case 4:
-                showAuthDialog(false);
+                wv = this.webView;
+                if (wv != null) {
+                    wv.reload();
+                }
                 return;
             case 5:
-                confirmLogout();
+                showServerDialog();
                 return;
             case 6:
+                showAuthDialog(false);
+                return;
+            case 7:
+                confirmLogout();
+                return;
+            case 8:
+                showGuideDialog();
+                return;
+            case 9:
+                showAdvancedMenu();
+                return;
+            default:
+        }
+    }
+
+    /** 二级页：不常改的设置，以及需要解释才敢动的高级项。 */
+    private void showAdvancedMenu() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        int frameRate = this.prefs.getInt(PREF_FRAME_RATE, 0);
+        int idleMode = idleMode();
+        String[] items = new String[]{
+                "清空网页缓存",
+                idleMode != IDLE_OFF
+                        ? "渲染帧率：" + frameRateLabel(frameRate) + "（挂机中，实际 "
+                        + frameRateLabel(effectiveFrameRate()) + "）"
+                        : "渲染帧率：" + frameRateLabel(frameRate) + "（点击修改）",
+                "挖孔屏适配：" + cutoutModeLabel() + "（点击修改）",
+                "jsDelivr 加速：" + jsdAccelLabel() + "（点击设置）",
+                "更新渠道：" + UpdateManager.channelLabel(
+                        UpdateManager.channelOf(this.prefs)) + "（点击切换）",
+                "检查更新（当前 " + BuildConfig.VERSION_NAME + "）",
+                "回复完成通知：" + replyNotificationLabel(),
+                "已信任的明文地址：" + this.trustedHttpOrigins.size() + " 个（点击管理）",
+                "调试与诊断…"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("高级设置")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialogInterface, int i) {
+                        onAdvancedMenuSelected(i);
+                    }
+                })
+                .setNegativeButton("返回", null)
+                .show();
+    }
+
+    private void onAdvancedMenuSelected(int i) {
+        WebView wv;
+        switch (i) {
+            case 0:
                 if (this.cacheManager != null) {
                     this.cacheManager.clearCache();
                 }
@@ -1932,38 +2155,118 @@ public class MainActivity extends Activity {
                 }
                 Toast.makeText(this, "缓存已清空", Toast.LENGTH_SHORT).show();
                 return;
-            case 7:
-                wv = this.webView;
-                if (wv != null) {
-                    wv.reload();
-                }
-                return;
-            case 8:
+            case 1:
                 showFrameRateDialog();
                 return;
-            case 9:
-                showIdleModeDialog();
+            case 2:
+                showCutoutDialog();
                 return;
-            case 10:
+            case 3:
                 showJsdAccelDialog();
                 return;
-            case 11:
+            case 4:
                 showUpdateChannelDialog();
                 return;
-            case 12:
+            case 5:
                 checkUpdates();
                 return;
-            case 13:
+            case 6:
                 showReplyNotificationDialog();
                 return;
-            case 14:
-                showGuideDialog();
+            case 7:
+                showTrustedHttpDialog();
                 return;
-            case 15:
+            case 8:
                 showDebugMenu();
                 return;
             default:
         }
+    }
+
+    /** 挖孔屏适配当前档位的显示名。 */
+    private String cutoutModeLabel() {
+        switch (this.prefs.getInt(PREF_CUTOUT_MODE, CUTOUT_ADAPTIVE)) {
+            case CUTOUT_ALWAYS:
+                return "强制铺满";
+            case CUTOUT_NEVER:
+                return "避开挖孔";
+            default:
+                return "自适应";
+        }
+    }
+
+    /** 三档挖孔适配；切换后立即改窗口属性，多数机型无需重启。 */
+    private void showCutoutDialog() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        final int[] values = {CUTOUT_ADAPTIVE, CUTOUT_ALWAYS, CUTOUT_NEVER};
+        String[] items = new String[]{
+                "自适应（推荐）：竖屏内容延伸到上下边缘，挖孔两侧也能显示",
+                "强制铺满：横屏也铺满，侧边挖孔可能挡住内容",
+                "避开挖孔：顶部整条留空，与旧版本行为一致"
+        };
+        // 说明放在标题里：setMessage 和 setItems 同时使用会把列表压成 0 高（部分 ROM）。
+        new AlertDialog.Builder(this)
+                .setTitle("挖孔屏适配（当前：" + cutoutModeLabel() + "）")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        MainActivity.this.prefs.edit()
+                                .putInt(PREF_CUTOUT_MODE, values[which]).apply();
+                        applyCutoutMode();
+                        Toast.makeText(MainActivity.this, "已切换为「" + cutoutModeLabel()
+                                + "」，如界面未变化请重新打开 App", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 管理用户显式信任的明文 http origin。 */
+    private void showTrustedHttpDialog() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        final String[] origins = this.trustedHttpOrigins.toArray(new String[0]);
+        if (origins.length == 0) {
+            Toast.makeText(this, "没有已信任的明文地址", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        java.util.Arrays.sort(origins);
+        // 标题承载说明：setMessage + setItems 在部分 ROM 上会把列表挤没。
+        new AlertDialog.Builder(this)
+                .setTitle("已信任的明文地址（" + origins.length + " 个，点击移除）")
+                .setItems(origins, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        confirmForgetOrigin(origins[which]);
+                    }
+                })
+                .setNeutralButton("全部清除", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        clearTrustedOrigins();
+                        Toast.makeText(MainActivity.this, "已清除全部信任", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("返回", null)
+                .show();
+    }
+
+    private void confirmForgetOrigin(final String origin) {
+        new AlertDialog.Builder(this)
+                .setTitle("移除信任")
+                .setMessage(origin + "\n\n移除后这个地址将不再允许明文 http 连接。")
+                .setPositiveButton("移除", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        forgetTrustedOrigin(origin);
+                        Toast.makeText(MainActivity.this, "已移除", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private String replyNotificationLabel() {

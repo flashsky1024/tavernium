@@ -988,8 +988,10 @@ public class CacheManagerTest {
         check("说明了这是什么应用",
                 src.contains("这是 Tavernium —— SillyTavern 的 Android 客户端"));
         check("地址前缀有校验", src.contains("地址要以 http:// 或 https:// 开头"));
+        // 只校验「三个键都写入了」，不绑定局部变量名：地址会先补结尾斜杠再落盘，
+        // 变量名从 url 改成 normalized 不代表漏存。
         check("保存后同时写入地址与凭据",
-                src.contains("putString(PREF_SERVER_URL, url)")
+                src.contains("putString(PREF_SERVER_URL")
                         && src.contains("putString(PREF_USER")
                         && src.contains("putString(PREF_PASS"));
     }
@@ -1304,6 +1306,13 @@ public class CacheManagerTest {
         }
 
         @Override
+        @SuppressWarnings("unchecked")
+        public Set<String> getStringSet(String key, Set<String> defValues) {
+            Object v = map.get(key);
+            return v instanceof Set ? (Set<String>) v : defValues;
+        }
+
+        @Override
         public Editor edit() {
             return new Editor() {
                 private final java.util.Map<String, Object> pending = new java.util.HashMap<>();
@@ -1329,6 +1338,12 @@ public class CacheManagerTest {
                 @Override
                 public Editor putLong(String key, long value) {
                     pending.put(key, value);
+                    return this;
+                }
+
+                @Override
+                public Editor putStringSet(String key, Set<String> values) {
+                    pending.put(key, values == null ? null : new java.util.HashSet<>(values));
                     return this;
                 }
 

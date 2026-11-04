@@ -31,8 +31,8 @@ PROJECT_DIR="$ROOT_DIR/tavernium"
 NOTES="${1:-}"
 VERSION="${2:-$(grep -oP "tkVersionName = '\K[0-9.]+" "$PROJECT_DIR/app/build.gradle" | head -1)}"
 CODE="$(grep -oP 'versionCode \K[0-9]+' "$PROJECT_DIR/app/build.gradle" | head -1)"
-REL_APK="$PROJECT_DIR/app/build/outputs/apk/release/tavermium-release-${VERSION}.apk"
-DBG_APK="$PROJECT_DIR/app/build/outputs/apk/debug/tavermium-debug-${VERSION}.apk"
+REL_APK="$PROJECT_DIR/app/build/outputs/apk/release/tavernium-release-${VERSION}.apk"
+DBG_APK="$PROJECT_DIR/app/build/outputs/apk/debug/tavernium-debug-${VERSION}.apk"
 
 SSH=(sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$HOST")
 SCP=(sshpass -p "$PASS" scp -o StrictHostKeyChecking=no)

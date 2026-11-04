@@ -177,12 +177,14 @@ public interface SharedPreferences {
     boolean getBoolean(String key, boolean defValue);
     int getInt(String key, int defValue);
     long getLong(String key, long defValue);
+    java.util.Set<String> getStringSet(String key, java.util.Set<String> defValues);
     Editor edit();
     interface Editor {
         Editor putString(String key, String value);
         Editor putBoolean(String key, boolean value);
         Editor putInt(String key, int value);
         Editor putLong(String key, long value);
+        Editor putStringSet(String key, java.util.Set<String> values);
         Editor remove(String key);
         void apply();
     }
@@ -463,6 +465,12 @@ public class WindowManager {
     public static class LayoutParams {
         public static final int FLAG_KEEP_SCREEN_ON = 128;
         public static final int FLAG_FULLSCREEN = 1024;
+        /** 挖孔屏适配：SHORT_EDGES/NEVER 为 API 28，ALWAYS 为 API 30 新增。 */
+        public static final int LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT = 0;
+        public static final int LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES = 1;
+        public static final int LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER = 2;
+        public static final int LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS = 3;
+        public int layoutInDisplayCutoutMode;
         public float preferredRefreshRate;
         /** 窗口亮度：0-1 为绝对值，-1 表示跟随系统。 */
         public float screenBrightness = -1f;

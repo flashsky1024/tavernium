@@ -30,16 +30,19 @@ Tavernium 不是又一个 AI 聊天应用，它更像一个转接头：酒馆还
 
 步骤：
 
-1. 到 [Releases](https://github.com/flashsky1024/tavernium/releases) 下载最新的安装包，文件名形如 `tavernium-release-2.0.3.apk`
+1. 到 [Releases](https://github.com/flashsky1024/tavernium/releases) 下载最新的安装包，文件名形如 `tavernium-release-2.0.5.apk`
 2. 在手机上打开安装包。如果系统提示不允许安装未知来源的应用，按提示允许即可
 3. 打开 Tavernium，填入你平时在浏览器里访问酒馆用的地址
 
 ### 服务器地址的规则
 
 - 局域网地址（如 `192.168.x.x`、`10.x.x.x`）：`http://` 和 `https://` 都可以
+- 组网地址（`100.64.0.0/10`，Tailscale、ZeroTier 这类工具用的就是这一段）：同样放行 `http://`
 - 公网地址（域名或公网 IP）：只能用 `https://`，填 `http://` 会被拒绝
 
 这是刻意的设计。http 不加密，你的聊天内容和登录密码在传输途中都是明文，中间经过的路由器、运营商、公共 Wi-Fi 都能看到，甚至能篡改。局域网是你自己的网络，风险可控，所以放行；公网上不行。
+
+公网上确实需要走 http 时（比如自建的反代没配证书），被拒绝的当下会弹一次确认，同意后只记住这一个地址——协议、主机、端口三者都要对上才放行，不会顺带放宽其他公网地址，也不会放宽应用自身的更新下载链路。记错了可以在「高级设置 → 已信任的明文地址」里删掉。
 
 ## 使用说明
 
@@ -189,7 +192,7 @@ onCreate
 
 ```bash
 cd verification && python3 run_verify.py
-# 574 项 PASS，0 FAIL
+# 675 项 PASS，0 FAIL
 ```
 
 不需要 Android SDK，有 JDK、Node.js 和 Python 3 就能跑：
@@ -203,12 +206,12 @@ cd verification && python3 run_verify.py
 
 | 项 | 值 |
 |---|---|
-| 版本 | 2.0.3（versionCode 55） |
+| 版本 | 2.0.5（versionCode 57） |
 | 包名 | `io.github.flashsky1024.tavernium`（debug 版为 `io.github.flashsky1024.tavernium.debug`） |
 | 系统要求 | Android 7.0（API 24）及以上 |
 | targetSdk / compileSdk | 34 / 36 |
 | 语言 | Java 17 |
-| 安装包 | release 236,084 字节（约 231 KB），debug 1,131,670 字节（约 1.1 MB） |
+| 安装包 | release 238,920 字节（约 233 KB），debug 1,137,738 字节（约 1.1 MB） |
 | CPU 架构 | 不限，纯 Java，没有 native 库 |
 | 签名证书 | `CN=Tavernium, O=flashsky1024`，4096 位 RSA，有效期至 2054 年 |
 

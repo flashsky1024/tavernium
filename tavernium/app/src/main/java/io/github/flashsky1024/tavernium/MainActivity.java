@@ -228,6 +228,20 @@ public class MainActivity extends Activity {
     /** 状态栏是否常显，供 insets 回调决定顶部留白。 */
     private boolean statusBarVisible;
     /**
+     * 连续启动崩溃后的降级模式。
+     *
+     * <p>只跳过「不是非有不可」的外围功能：保活服务、镜像探测、性能监控、各种启动弹窗。
+     * WebView、缓存拦截这些核心路径照常，否则用户进来也用不了。</p>
+     */
+    private boolean safeMode;
+    /**
+     * 自动修复模式：连安全模式都没救回来时，清掉网页缓存与登录状态再试。
+     *
+     * <p>放在创建 WebView 之前执行——如果崩溃正是坏掉的 WebView 数据引起的，
+     * 先清再建才有意义；建完再清，崩的还是同一步。</p>
+     */
+    private boolean recoveryMode;
+    /**
      * 主框架加载失败时贴在顶部的提示条。
      *
      * <p>没有它的时候，地址填错的人看到的就是一片白屏或系统错误页，界面上找不到任何
@@ -303,6 +317,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        // 必须最先装：启动早期的崩溃同样要留堆栈，否则「打不开」永远是黑盒。
+        CrashReporter.install(getApplicationContext());
+        CrashReporter.markBoot(this);
+        this.safeMode = CrashReporter.shouldUseSafeMode(this);
+        this.recoveryMode = CrashReporter.shouldUseRecoveryMode(this);
+        if (this.recoveryMode) {
+            // 必须在 createWebView 与 CacheManager 构造之前：坏数据还没被读进内存
+            CrashReporter.clearTransientData(this);
+        }
         this.prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         reloadPrefs();
         PerfLog.init(this);
@@ -354,20 +377,56 @@ public class MainActivity extends Activity {
         });
         createWebView();
         handleReplyIntent(getIntent());
+        if (this.safeMode) {
+            PerfLog.w(TAG, "safe mode: skip service / probe / startup dialogs");
+        }
         // jsDelivr 探测放到后台：未完成前镜像为 null，请求照常走官方，不阻塞首屏
-        probeJsdAccel();
+        if (!this.safeMode) {
+            probeJsdAccel();
+        }
         this.handler.post(this.heartbeatRunnable);
-        if (this.prefs.getBoolean(PREF_PERF_MONITOR, false)) {
+        if (!this.safeMode && this.prefs.getBoolean(PREF_PERF_MONITOR, false)) {
             startPerfMonitor();
         }
 
         // 只在首次、且已经配好服务器时提示一次白名单；每次启动都跳系统设置页会打断使用，
         // 用户拒绝后反复跳更是纯骚扰。之后可从「调试与诊断」手动进入。
-        if (!this.serverUrl.isEmpty()) {
+        if (!this.safeMode && !this.serverUrl.isEmpty()) {
             maybePromptBatteryOptimization();
         }
-        startKeepAliveService();
-        maybeShowWhatsNew();
+        if (!this.safeMode) {
+            startKeepAliveService();
+            maybeShowWhatsNew();
+        } else {
+            // 安全模式也要能退出来：界面能起来并稳定运行，就说明这次没踩到那个坑
+            this.handler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    showSafeModeDialog();
+                }
+            }, 1200L);
+        }
+        // 稳定运行 25 秒后清零崩溃连击，下次启动恢复正常
+        this.handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                CrashReporter.markBootCompleted(MainActivity.this);
+            }
+        }, 25000L);
+    }
+
+    /** 安全模式说明：重点是告诉用户日志在哪，应用打不开也能取。 */
+    private void showSafeModeDialog() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(this.recoveryMode ? "已修复启动问题" : "已进入安全模式")
+                .setMessage(this.recoveryMode
+                        ? CrashReporter.recoveryMessage(this)
+                        : CrashReporter.safeModeMessage(this))
+                .setPositiveButton("知道了", null)
+                .show();
     }
 
     /**
@@ -2811,7 +2870,7 @@ public class MainActivity extends Activity {
                 monitorOn ? "性能监控：开（点击关闭）" : "性能监控：关（点击开启）",
                 verbose ? "详细日志：开（点击关闭）" : "详细日志：关（点击开启）",
                 "查看性能报告",
-                "导出性能日志",
+                "导出日志（含崩溃记录）",
                 "查看运行日志",
                 "网络：清空不可达域名",
                 batteryWhitelisted ? "电池优化：已加入白名单（点击查看）"
@@ -3747,31 +3806,46 @@ public class MainActivity extends Activity {
         });
     }
 
-    /** 把当前性能日志复制到 下载/SillyTavern/，走 MediaStore，无需存储权限。 */
+    /** 把当前性能日志和最近的崩溃记录复制到 下载/SillyTavern/，走 MediaStore，无需存储权限。 */
     private void exportPerfLog() {
         final File src = PerfLog.currentLog();
-        if (src == null || !src.exists()) {
-            Toast.makeText(this, "暂无性能日志", Toast.LENGTH_SHORT).show();
+        final java.util.List<File> crashes = CrashReporter.recentCrashFiles(this, 3);
+        if ((src == null || !src.exists()) && crashes.isEmpty()) {
+            Toast.makeText(this, "暂无日志可导出", Toast.LENGTH_SHORT).show();
             return;
         }
         new Thread(new Runnable() {
             @Override
             public void run() {
-                InputStream in = null;
+                int ok = 0;
+                String detail = "";
                 try {
                     // 文件名带时间戳：多次导出不会互相覆盖，便于对比不同场景
-                    String name = "tavernium-perf-"
-                            + new java.text.SimpleDateFormat("MMdd-HHmm", Locale.US)
-                            .format(new java.util.Date()) + ".log";
-                    in = new FileInputStream(src);
-                    saveStreamToDownloads(name, "text/plain", in);
-                    final String shown = name;
+                    String stamp = new java.text.SimpleDateFormat("MMdd-HHmm", Locale.US)
+                            .format(new java.util.Date());
+                    if (src != null && src.exists()) {
+                        String name = "tavernium-perf-" + stamp + ".log";
+                        ok += copyToDownloads(src, name);
+                        detail = name;
+                    }
+                    for (File f : crashes) {
+                        // 崩溃记录本身已带时间戳，直接沿用，导出后仍能对上是哪一次
+                        String name = "tavernium-" + f.getName();
+                        ok += copyToDownloads(f, name);
+                        if (detail.length() == 0) {
+                            detail = name;
+                        }
+                    }
+                    if (ok == 0) {
+                        throw new IOException("没有可写入的日志文件");
+                    }
+                    final String msg = ok == 1
+                            ? "日志已导出到 下载/SillyTavern/" + detail
+                            : "已导出 " + ok + " 个文件到 下载/SillyTavern/";
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            Toast.makeText(MainActivity.this,
-                                    "日志已导出到 下载/SillyTavern/" + shown,
-                                    Toast.LENGTH_LONG).show();
+                            Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
                         }
                     });
                 } catch (final Exception e) {
@@ -3782,11 +3856,24 @@ public class MainActivity extends Activity {
                                     "导出失败：" + e.getMessage(), Toast.LENGTH_SHORT).show();
                         }
                     });
-                } finally {
-                    closeQuietly(in);
                 }
             }
         }).start();
+    }
+
+    /** 复制单个文件到下载目录，成功返回 1，失败返回 0 并记日志（不中断其余文件）。 */
+    private int copyToDownloads(File file, String name) {
+        InputStream in = null;
+        try {
+            in = new FileInputStream(file);
+            saveStreamToDownloads(name, "text/plain", in);
+            return 1;
+        } catch (Exception e) {
+            PerfLog.w(TAG, "export failed: " + name + " " + e.getMessage());
+            return 0;
+        } finally {
+            closeQuietly(in);
+        }
     }
 
     @Override

@@ -32,7 +32,7 @@ Tavernium 不是又一个 AI 聊天应用，它更像一个转接头：酒馆还
 
 步骤：
 
-1. 到 [Releases](https://github.com/flashsky1024/tavernium/releases) 下载最新的安装包，文件名形如 `tavernium-release-2.0.8.apk`
+1. 到 [Releases](https://github.com/flashsky1024/tavernium/releases) 下载最新的安装包，文件名形如 `tavernium-release-2.0.9.apk`
 2. 在手机上打开安装包。如果系统提示不允许安装未知来源的应用，按提示允许即可
 3. 打开 Tavernium，填入你平时在浏览器里访问酒馆用的地址
 
@@ -99,6 +99,13 @@ Tavernium 自带更新功能。更新包下载后会核对包名、签名证书�
 ### 遇到问题
 
 内置诊断可以实时查看帧率、卡顿、内存占用和加载失败的资源。遇到卡顿、白屏或者有东西加载不出来，可以一键导出日志到「下载/SillyTavern/」，[提 Issue](https://github.com/flashsky1024/tavernium/issues) 时附上。日志只保留最近 4000 行，不会无限占用空间。
+
+如果应用启动就闪退，也不需要清除数据：
+
+- 崩溃堆栈会自动写到 `Android/data/io.github.flashsky1024.tavernium/files/perf/`，文件以 `crash-` 开头，应用打不开时也能用文件管理器或电脑取走。
+- 连续两次启动失败会自动进入**安全模式**：跳过保活服务、缓存加速等外围功能，先让界面能起来。
+- 连续三次仍失败会自动进入**自动修复**：清掉网页缓存、Cookie、localStorage 和本应用的磁盘缓存，保留服务器地址与各项设置，聊天记录在服务端不受影响。代价是可能需要重新登录酒馆。
+- 「调试与诊断 → 导出日志（含崩溃记录）」会把运行日志和最近的崩溃记录一起导出，反馈问题时更方便。
 
 ## 权限说明
 
@@ -203,7 +210,7 @@ onCreate
 
 ```bash
 cd verification && python3 run_verify.py
-# 675 项 PASS，0 FAIL
+# 700 项 PASS，0 FAIL
 ```
 
 不需要 Android SDK，有 JDK、Node.js 和 Python 3 就能跑：
@@ -217,12 +224,12 @@ cd verification && python3 run_verify.py
 
 | 项 | 值 |
 |---|---|
-| 版本 | 2.0.8（versionCode 60） |
+| 版本 | 2.0.9（versionCode 61） |
 | 包名 | `io.github.flashsky1024.tavernium`（debug 版为 `io.github.flashsky1024.tavernium.debug`） |
 | 系统要求 | Android 7.0（API 24）及以上 |
 | targetSdk / compileSdk | 34 / 36 |
 | 语言 | Java 17 |
-| 安装包 | release 240,452 字节（约 235 KB），debug 1,140,154 字节（约 1.1 MB） |
+| 安装包 | release 242,904 字节（约 237 KB），debug 1,144,946 字节（约 1.1 MB） |
 | CPU 架构 | 不限，纯 Java，没有 native 库 |
 | 签名证书 | `CN=Tavernium, O=flashsky1024`，4096 位 RSA，有效期至 2054 年 |
 

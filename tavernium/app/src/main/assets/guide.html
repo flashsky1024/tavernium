@@ -63,8 +63,9 @@
   <li><b>打开主菜单</b>，点「调试与诊断…」。</li>
   <li><b>把「性能监控」和「详细日志」都打开</b>，状态显示“开”。</li>
   <li><b>彻底退出应用再重开</b>，按原来的步骤复现问题，例如打开某个角色、发送图片、切换页面。</li>
-  <li><b>回到菜单 → 调试与诊断 → 导出性能日志</b>。文件通常在 <code>下载/SillyTavern/</code>，名字以 <code>tavernium-perf-</code> 开头。</li>
+  <li><b>回到菜单 → 调试与诊断 → 导出日志</b>。文件通常出现在 <code>下载/SillyTavern/</code>，<code>tavernium-perf-</code> 开头的是运行日志，<code>tavernium-crash-</code> 开头的是崩溃记录。</li>
 </ol>
+<div class="hint">如果应用根本打不开：连续两次启动失败后会自动进入安全模式，弹窗里会给出崩溃文件的位置；也可以用文件管理器进入 <code>Android/data/io.github.flashsky1024.tavernium/files/perf/</code> 取走 <code>crash-</code> 文件。</div>
 <div class="hint">把日志文件和以下信息一起发：手机型号、系统版本、Android System WebView 版本、问题发生时间和现象。</div>
 
 <h2>图片显示异常</h2>

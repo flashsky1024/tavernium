@@ -45,7 +45,14 @@ public final class R {
 """,
 "android/os/Build.java": """
 package android.os;
-public class Build { public static class VERSION { public static int SDK_INT = 34; } }
+public class Build {
+    public static final String MANUFACTURER = "stub";
+    public static final String MODEL = "stub";
+    public static class VERSION {
+        public static int SDK_INT = 34;
+        public static final String RELEASE = "stub";
+    }
+}
 """,
 "android/os/Bundle.java": """
 package android.os;
@@ -101,6 +108,8 @@ public class Process {
         return (int) ProcessHandle.current().pid();
     }
     public static int myUid() { return 1000; }
+    // 桩里不能真杀进程：测试 JVM 会跟着退出
+    public static void killProcess(int pid) {}
     public static long getStartElapsedRealtime() { return System.nanoTime() / 1000000L; }
 }
 """,
@@ -142,6 +151,9 @@ public class Context {
     }
     public java.io.File getFilesDir() {
         return new java.io.File(System.getProperty("tk.filesDir", System.getProperty("java.io.tmpdir")));
+    }
+    public java.io.File getDataDir() {
+        return new java.io.File(System.getProperty("tk.dataDir", System.getProperty("java.io.tmpdir")));
     }
     public java.io.File getExternalFilesDir(String type) {
         return new java.io.File(System.getProperty("tk.extDir", System.getProperty("java.io.tmpdir")));

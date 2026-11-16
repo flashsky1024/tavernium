@@ -98,6 +98,16 @@ public final class CrashReporterTest {
         check("应用缓存被清掉", !cacheFile.exists());
         check("设置文件保留", new File(keepSettings, "tavernium.xml").exists());
 
+        section("提示文案里的目录");
+        check("安全模式提示用当前包名",
+                CrashReporter.safeModeMessage(recover).contains(
+                        "Android/data/io.github.flashsky1024.tavernium.debug/files/perf/"));
+        check("自动修复提示用当前包名",
+                CrashReporter.recoveryMessage(recover).contains(
+                        "Android/data/io.github.flashsky1024.tavernium.debug/files/perf/"));
+        check("提示里说明聊天记录不受影响",
+                CrashReporter.recoveryMessage(recover).contains("聊天记录在服务端"));
+
         System.out.println("PASSED: " + passed + "   FAILED: " + failed);
         System.exit(failed > 0 ? 1 : 0);
     }
@@ -164,6 +174,11 @@ public final class CrashReporterTest {
         @Override
         public Context getApplicationContext() {
             return this;
+        }
+
+        @Override
+        public String getPackageName() {
+            return "io.github.flashsky1024.tavernium.debug";
         }
     }
 

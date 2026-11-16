@@ -353,12 +353,18 @@ public class MainActivity extends Activity {
         warmUpDns(this.serverUrl);
         this.cacheManager = new CacheManager(this);
         this.cacheManager.setCredentialOrigin(this.serverUrl);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        applyCutoutMode();
-        applyEdgeToEdge();
-        applyStatusBarVisibility();
-        applyKeepScreenOn(this.prefs.getBoolean(PREF_KEEP_SCREEN_ON, true));
+        // 窗口装饰只影响观感（全屏、挖孔、状态栏、常亮）。任何一款 ROM 在这些调用上
+        // 抛异常都不该让应用打不开——2.0.9 的启动闪退就是 getInsetsController 空指针。
+        try {
+            getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            applyCutoutMode();
+            applyEdgeToEdge();
+            applyStatusBarVisibility();
+            applyKeepScreenOn(this.prefs.getBoolean(PREF_KEEP_SCREEN_ON, true));
+        } catch (Throwable t) {
+            PerfLog.w(TAG, "window tuning failed: " + t);
+        }
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
@@ -1107,6 +1113,31 @@ public class MainActivity extends Activity {
      * 因为窗口已经 edge-to-edge，状态栏会浮在内容上方，所以由 {@link #installImeInsets}
      * 按状态栏高度给根视图加顶部留白，页面不会被时间挡住。</p>
      */
+    /**
+     * 取系统栏控制器；拿不到就返回 null，绝不把启动流程带崩。
+     *
+     * <p>Android 16 上 {@code PhoneWindow#getInsetsController()} 直接解引用内部 mDecor：
+     * {@code DecorView.getWindowInsetsController() on a null object reference}。
+     * 而 onCreate 早期还没 setContentView，decor 尚未安装，取控制器就是空指针，
+     * 整个 Activity 起不来——更糟的是每次启动都走同一条路，用户只能清数据。</p>
+     *
+     * <p>先 {@link Window#getDecorView()} 强制安装 decor，再取控制器；仍失败就放弃这次
+     * 状态栏调整，交给系统默认行为。全屏观感可以让步，启动不能。</p>
+     */
+    private WindowInsetsController insetsController() {
+        Window window = getWindow();
+        if (window == null) {
+            return null;
+        }
+        try {
+            window.getDecorView();
+            return window.getInsetsController();
+        } catch (Throwable t) {
+            PerfLog.w(TAG, "insets controller unavailable: " + t);
+            return null;
+        }
+    }
+
     private void applyStatusBarVisibility() {
         Window window = getWindow();
         if (window == null) {
@@ -1122,7 +1153,7 @@ public class MainActivity extends Activity {
         if (show) {
             window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
             if (Build.VERSION.SDK_INT >= 30) {
-                WindowInsetsController controller = window.getInsetsController();
+                WindowInsetsController controller = insetsController();
                 if (controller != null) {
                     controller.show(WindowInsets.Type.statusBars());
                 }
@@ -1140,7 +1171,7 @@ public class MainActivity extends Activity {
         } else {
             window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
             if (Build.VERSION.SDK_INT >= 30) {
-                WindowInsetsController controller = window.getInsetsController();
+                WindowInsetsController controller = insetsController();
                 if (controller != null) {
                     controller.hide(WindowInsets.Type.statusBars());
                 }
@@ -3632,7 +3663,7 @@ public class MainActivity extends Activity {
         Window window = getWindow();
         if (Build.VERSION.SDK_INT >= 30) {
             try {
-                WindowInsetsController controller = window.getInsetsController();
+                WindowInsetsController controller = insetsController();
                 if (controller != null) {
                     controller.hide(WindowInsets.Type.systemBars());
                     controller.setSystemBarsBehavior(
@@ -3668,7 +3699,7 @@ public class MainActivity extends Activity {
         Window window = getWindow();
         if (Build.VERSION.SDK_INT >= 30) {
             try {
-                WindowInsetsController controller = window.getInsetsController();
+                WindowInsetsController controller = insetsController();
                 if (controller != null) {
                     controller.show(WindowInsets.Type.navigationBars());
                 }

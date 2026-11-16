@@ -59,6 +59,7 @@ public class CacheManagerTest {
         testFrameRateHelpers();
         testBuildVersion();
         testMenuStructure();
+        testInsetsControllerGuard();
         testJsdMirror();
         testFrameRateHookTiming();
         testCorsHeaders();
@@ -1146,6 +1147,35 @@ public class CacheManagerTest {
     }
 
     /** 菜单分层：主菜单只留日常项，诊断类统一收进二级菜单。 */
+    /**
+     * 启动期取系统栏控制器必须先安装 decor。
+     *
+     * <p>2.0.9 的真实崩溃：Android 16 的 PhoneWindow#getInsetsController 直接解引用
+     * mDecor，onCreate 阶段还没 setContentView，decor 为 null → NPE，Activity 起不来，
+     * 而且每次启动必现。这里用源码断言锁住调用顺序，避免以后又被"顺手简化"回去。</p>
+     */
+    private static void testInsetsControllerGuard() {
+        section("启动期系统栏控制器保护");
+        String src = readSource("MainActivity.java");
+        int helper = src.indexOf("private WindowInsetsController insetsController()");
+        check("存在统一的安全封装", helper >= 0);
+        if (helper >= 0) {
+            int end = src.indexOf("private void applyStatusBarVisibility()", helper);
+            String body = end > helper ? src.substring(helper, end) : "";
+            int decor = body.indexOf("getDecorView()");
+            int controller = body.indexOf("getInsetsController()");
+            check("先安装 decor 再取控制器", decor >= 0 && controller > decor);
+            check("取不到时捕获而不抛出", body.contains("catch (Throwable"));
+        }
+        int start = src.indexOf("private void applyStatusBarVisibility()");
+        int stop = src.indexOf("private void toggleStatusBar()", start);
+        String statusBar = start >= 0 && stop > start ? src.substring(start, stop) : "";
+        check("状态栏逻辑不再直接取控制器",
+                statusBar.length() > 0 && !statusBar.contains("window.getInsetsController()"));
+        check("onCreate 的窗口装饰有异常兜底",
+                src.contains("window tuning failed"));
+    }
+
     private static void testMenuStructure() {
         section("菜单分层");
         String src = readSource("MainActivity.java");

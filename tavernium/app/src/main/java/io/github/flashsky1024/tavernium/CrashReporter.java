@@ -49,9 +49,13 @@ public final class CrashReporter {
     /** 连续几次后不再只是降级，而是清掉可重建的数据。 */
     private static final int RECOVERY_THRESHOLD = 3;
     /** 崩溃文件位置：应用打不开时也能用文件管理器或电脑取走。 */
-    private static final String LOG_HINT =
-            "Android/data/io.github.flashsky1024.tavernium/files/perf/\n"
-                    + "里面的 crash- 开头文件就是崩溃原因。";
+    private static String logHint(Context context) {
+        // 调试版包名带 .debug，写死正式版包名会让调试版用户照着找却找不到
+        String pkg = context == null ? "io.github.flashsky1024.tavernium"
+                : context.getPackageName();
+        return "Android/data/" + pkg + "/files/perf/\n"
+                + "里面的 crash- 开头文件就是崩溃原因。";
+    }
     private static final int MAX_CRASH_FILES = 5;
 
     private static boolean installed = false;
@@ -209,7 +213,7 @@ public final class CrashReporter {
     public static String safeModeMessage(Context context) {
         return "检测到连续 " + streak(context) + " 次启动失败，已临时关闭后台服务、缓存加速等外围功能。\n\n"
                 + "如果仍然闪退，请用文件管理器或电脑取出日志：\n"
-                + LOG_HINT;
+                + logHint(context);
     }
 
     /** 自动修复后的说明：必须讲清楚丢了什么、没丢什么，否则用户会以为又被清了一次数据。 */
@@ -217,7 +221,7 @@ public final class CrashReporter {
         return "连续 " + streak(context) + " 次启动失败，已清掉网页缓存和登录状态后重试。\n\n"
                 + "服务器地址、账号密码等设置都还在；聊天记录在服务端，没有受影响。"
                 + "如果酒馆要求重新登录，登录一次即可。\n\n"
-                + "如果这次仍然闪退，日志在：\n" + LOG_HINT;
+                + "如果这次仍然闪退，日志在：\n" + logHint(context);
     }
 
     private static int streak(Context context) {

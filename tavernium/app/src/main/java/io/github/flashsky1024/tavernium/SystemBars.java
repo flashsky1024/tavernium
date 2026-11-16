@@ -20,6 +20,8 @@ final class SystemBars {
         }
         try {
             if (Build.VERSION.SDK_INT >= 30) {
+                // decor 未安装时 getInsetsController 会空指针，先确保它已创建
+                window.getDecorView();
                 WindowInsetsController controller = window.getInsetsController();
                 if (controller != null) {
                     if (hidden) {

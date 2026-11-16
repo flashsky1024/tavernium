@@ -25,6 +25,7 @@ import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -126,6 +127,8 @@ public class MainActivity extends Activity {
     private static final int CUTOUT_ADAPTIVE = 0;
     private static final int CUTOUT_ALWAYS = 1;
     private static final int CUTOUT_NEVER = 2;
+    /** 顶部状态栏常显（时间、电量、信号）；默认关闭，保持原来的沉浸全屏。 */
+    private static final String PREF_SHOW_STATUS_BAR = "show_status_bar";
     /** 用户手动信任的明文 http origin（精确到 scheme://host:port）。 */
     private static final String PREF_TRUSTED_HTTP = "trusted_http_origins";
     private static final String JSD_MIRROR_BASE = "https://jsd.onmicrosoft.cn";
@@ -220,6 +223,18 @@ public class MainActivity extends Activity {
     private Handler handler;
     private SharedPreferences prefs;
     private WebView webView;
+    /** 承载 WebView 与挂机遮罩的根容器；状态栏/输入法留白都加在它身上。 */
+    private FrameLayout contentRoot;
+    /** 状态栏是否常显，供 insets 回调决定顶部留白。 */
+    private boolean statusBarVisible;
+    /**
+     * 主框架加载失败时贴在顶部的提示条。
+     *
+     * <p>没有它的时候，地址填错的人看到的就是一片白屏或系统错误页，界面上找不到任何
+     * 可点的东西，很容易以为只能清除应用数据才能重来——群里已经有人这么反馈过。
+     * 提示条直接给出「修改地址」入口，把这条路铺平。</p>
+     */
+    private View connectionBar;
 
     /** 以下字段在 UI 线程写、在 WebView 网络线程读，用 volatile 保证可见性。 */
     private volatile String userAgent = EMPTY;
@@ -319,6 +334,7 @@ public class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
         applyCutoutMode();
         applyEdgeToEdge();
+        applyStatusBarVisibility();
         applyKeepScreenOn(this.prefs.getBoolean(PREF_KEEP_SCREEN_ON, true));
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true);
@@ -328,6 +344,8 @@ public class MainActivity extends Activity {
         this.idleController = new IdleController(this, this.handler, new IdleController.Listener() {
             @Override public void onApplied(int mode) {
                 applyFrameRateLimit(effectiveFrameRate());
+                // 进出黑屏挂机时同步状态栏：挂机一律隐藏，退出后恢复用户的选择
+                applyStatusBarVisibility();
             }
             @Override public void onUnlocked() {
                 setIdleMode(IDLE_OFF);
@@ -501,7 +519,10 @@ public class MainActivity extends Activity {
         FrameLayout container = new FrameLayout(this);
         container.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // 提示条先于挂机遮罩加入：挂机时遮罩要能把它盖住，不能让它黑屏上漏一条。
+        buildConnectionBar(container);
         buildIdleOverlay(container);
+        this.contentRoot = container;
         setContentView(container);
         installImeInsets(container);
 
@@ -972,9 +993,9 @@ public class MainActivity extends Activity {
             window.setDecorFitsSystemWindows(false);
         } else {
             View decor = window.getDecorView();
+            // 只铺到导航栏；状态栏方向交给 applyStatusBarVisibility 决定是否 LAYOUT_FULLSCREEN
             decor.setSystemUiVisibility(decor.getSystemUiVisibility()
                     | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                     | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         }
     }
@@ -995,21 +1016,95 @@ public class MainActivity extends Activity {
             public WindowInsets onApplyWindowInsets(View view, WindowInsets insets) {
                 int ime = 0;
                 int nav = 0;
+                int top = 0;
                 try {
                     ime = insets.getInsets(WindowInsets.Type.ime()).bottom;
                     nav = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
+                    if (statusBarVisible) {
+                        // 状态栏常显时内容从栏下开始；挖孔屏上状态栏 inset 可能比孔浅，
+                        // 取两者较大值，避免时间显示在孔里、正文压到孔下面。
+                        int status = insets.getInsets(WindowInsets.Type.statusBars()).top;
+                        int cutout = insets.getInsets(WindowInsets.Type.displayCutout()).top;
+                        top = Math.max(status, cutout);
+                    }
                 } catch (Throwable ignored) {
                 }
                 // 键盘没弹出时也要给手势条留高度，否则页面最底部的输入框会压在
                 // 导航条下面点不到。键盘弹出后 IME 通常比导航栏高，取两者最大值即可。
                 int bottom = Math.max(ime, nav);
-                if (view.getPaddingBottom() != bottom) {
-                    view.setPadding(view.getPaddingLeft(), view.getPaddingTop(),
+                if (view.getPaddingTop() != top || view.getPaddingBottom() != bottom) {
+                    view.setPadding(view.getPaddingLeft(), top,
                             view.getPaddingRight(), bottom);
                 }
                 return insets;
             }
         });
+    }
+
+    /**
+     * 顶部状态栏常显开关。
+     *
+     * <p>默认仍是沉浸全屏（状态栏隐藏）。打开后恢复系统状态栏，时间、电量、信号随看随有；
+     * 因为窗口已经 edge-to-edge，状态栏会浮在内容上方，所以由 {@link #installImeInsets}
+     * 按状态栏高度给根视图加顶部留白，页面不会被时间挡住。</p>
+     */
+    private void applyStatusBarVisibility() {
+        Window window = getWindow();
+        if (window == null) {
+            return;
+        }
+        boolean show = this.prefs != null
+                && this.prefs.getBoolean(PREF_SHOW_STATUS_BAR, false)
+                // 防烧屏挂机要求整屏零发光。状态栏是系统画的，黑屏遮罩盖不到它，
+                // 常显时那几个白色图标会一直亮着，正好是最容易烧出残影的位置。
+                // 所以挂机期间无条件隐藏，退出挂机后再按用户设置恢复。
+                && !isBurnInIdle();
+        this.statusBarVisible = show;
+        if (show) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            if (Build.VERSION.SDK_INT >= 30) {
+                WindowInsetsController controller = window.getInsetsController();
+                if (controller != null) {
+                    controller.show(WindowInsets.Type.statusBars());
+                }
+            } else {
+                View decor = window.getDecorView();
+                // 深色背景配白色图标：显式清掉 LIGHT_STATUS_BAR，避免 ROM 默认给深色图标；
+                // 同时去掉 LAYOUT_FULLSCREEN，让系统按状态栏高度把内容挤下来。
+                decor.setSystemUiVisibility((decor.getSystemUiVisibility()
+                        & ~View.SYSTEM_UI_FLAG_FULLSCREEN
+                        & ~View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR)
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+            }
+        } else {
+            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            if (Build.VERSION.SDK_INT >= 30) {
+                WindowInsetsController controller = window.getInsetsController();
+                if (controller != null) {
+                    controller.hide(WindowInsets.Type.statusBars());
+                }
+            } else {
+                View decor = window.getDecorView();
+                decor.setSystemUiVisibility(decor.getSystemUiVisibility()
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+            }
+        }
+        if (this.contentRoot != null) {
+            // 切换后系统不会主动重发一次 insets，手动请求，顶部留白才会立刻更新
+            this.contentRoot.requestApplyInsets();
+        }
+    }
+
+    /** 菜单里点一下就在「常显 / 隐藏」之间切换，立即生效，不需要重启。 */
+    private void toggleStatusBar() {
+        boolean show = !this.prefs.getBoolean(PREF_SHOW_STATUS_BAR, false);
+        this.prefs.edit().putBoolean(PREF_SHOW_STATUS_BAR, show).apply();
+        applyStatusBarVisibility();
+        Toast.makeText(this, show ? "状态栏已常显，下拉通知栏不受影响"
+                : "状态栏已隐藏，回到沉浸全屏", Toast.LENGTH_SHORT).show();
     }
 
     /**
@@ -1193,6 +1288,80 @@ public class MainActivity extends Activity {
      */
     private void buildIdleOverlay(FrameLayout container) {
         if (this.idleController != null) this.idleController.buildIdleOverlay(container);
+    }
+
+    /**
+     * 构建主框架加载失败的提示条。
+     *
+     * <p>只在最上层文档加载失败时出现：图片、脚本这类子资源失败是常态，每次都提示只会变成噪音。
+     * 「修改地址」复用已有的服务器对话框（里面预填当前地址），「重试」重新加载当前地址。</p>
+     */
+    private void buildConnectionBar(FrameLayout container) {
+        float density = getResources().getDisplayMetrics().density;
+        int side = (int) (density * 12.0f);
+        int vertical = (int) (density * 10.0f);
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setBackgroundColor(Color.parseColor("#2b1f1f"));
+        bar.setPadding(side, vertical, side, vertical);
+        bar.setVisibility(View.GONE);
+
+        TextView label = new TextView(this);
+        label.setText("连不上服务器");
+        label.setTextColor(Color.parseColor("#f0e4e4"));
+        label.setTextSize(13.0f);
+        label.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+        bar.addView(label);
+
+        TextView fix = new TextView(this);
+        fix.setText("修改地址");
+        fix.setTextColor(Color.parseColor("#9cc4ff"));
+        fix.setTextSize(13.0f);
+        fix.setPadding(side, vertical / 2, side, vertical / 2);
+        fix.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showServerDialog();
+            }
+        });
+        bar.addView(fix);
+
+        TextView retry = new TextView(this);
+        retry.setText("重试");
+        retry.setTextColor(Color.parseColor("#9cc4ff"));
+        retry.setTextSize(13.0f);
+        retry.setPadding(vertical, vertical / 2, 0, vertical / 2);
+        retry.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                hideConnectionBar();
+                if (webView != null) {
+                    webView.reload();
+                }
+            }
+        });
+        bar.addView(retry);
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.TOP;
+        container.addView(bar, lp);
+        this.connectionBar = bar;
+    }
+
+    private void showConnectionBar() {
+        if (this.connectionBar != null) {
+            this.connectionBar.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void hideConnectionBar() {
+        if (this.connectionBar != null) {
+            this.connectionBar.setVisibility(View.GONE);
+        }
     }
 
     private void recalcIdleUnlockDistance() {
@@ -1413,6 +1582,8 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPageStarted(WebView webView, String str, Bitmap bitmap) {
+            // 新的一次导航开始，上一次的失败提示先收起来；真失败会在 onReceivedError 里再亮。
+            MainActivity.this.hideConnectionBar();
             MainActivity.this.authRetryCount = 0;
             MainActivity.this.authRetryWindowStart = 0L;
             MainActivity.this.bridgeSession.beginDocument(str, MainActivity.this.serverUrl);
@@ -1527,6 +1698,13 @@ public class MainActivity extends Activity {
             String url = request == null ? "?" : String.valueOf(request.getUrl());
             if (main) {
                 PerfLog.w(TAG, "page error: " + desc + " url=" + TextKit.shortUrl(url));
+                // ERR_ABORTED 是这次导航被新的导航取代（连点、重定向），浏览器会自己继续，
+                // 不是真的连不上，弹提示只会误报。
+                boolean aborted = error != null
+                        && String.valueOf(error.getDescription()).contains("ERR_ABORTED");
+                if (!aborted) {
+                    MainActivity.this.showConnectionBar();
+                }
             } else {
                 PerfLog.d(TAG, "resource error: " + desc + " url=" + TextKit.shortUrl(url));
             }
@@ -1982,7 +2160,7 @@ public class MainActivity extends Activity {
 
         new AlertDialog.Builder(this)
                 .setTitle("设置 SillyTavern 服务器地址")
-                .setMessage("输入你的 SillyTavern 网址，保存后自动加载。\n\n" + SERVER_URL_HELP)
+                .setMessage("输入你的 SillyTavern 网址，保存后自动加载。以后地址变了，从菜单回到这里随时能改，不需要清除应用数据。\n\n" + SERVER_URL_HELP)
                 .setView(layout)
                 .setCancelable(false)
                 .setPositiveButton("保存", new DialogInterface.OnClickListener() {
@@ -2186,6 +2364,8 @@ public class MainActivity extends Activity {
                         + frameRateLabel(effectiveFrameRate()) + "）"
                         : "渲染帧率：" + frameRateLabel(frameRate) + "（点击修改）",
                 "挖孔屏适配：" + cutoutModeLabel() + "（点击修改）",
+                "状态栏：" + (this.prefs.getBoolean(PREF_SHOW_STATUS_BAR, false)
+                        ? "常显（点击隐藏）" : "隐藏（点击常显）"),
                 "jsDelivr 加速：" + jsdAccelLabel() + "（点击设置）",
                 "更新渠道：" + UpdateManager.channelLabel(
                         UpdateManager.channelOf(this.prefs)) + "（点击切换）",
@@ -2227,21 +2407,24 @@ public class MainActivity extends Activity {
                 showCutoutDialog();
                 return;
             case 3:
-                showJsdAccelDialog();
+                toggleStatusBar();
                 return;
             case 4:
-                showUpdateChannelDialog();
+                showJsdAccelDialog();
                 return;
             case 5:
-                checkUpdates();
+                showUpdateChannelDialog();
                 return;
             case 6:
-                showReplyNotificationDialog();
+                checkUpdates();
                 return;
             case 7:
-                showTrustedHttpDialog();
+                showReplyNotificationDialog();
                 return;
             case 8:
+                showTrustedHttpDialog();
+                return;
+            case 9:
                 showDebugMenu();
                 return;
             default:
@@ -3428,19 +3611,19 @@ public class MainActivity extends Activity {
             try {
                 WindowInsetsController controller = window.getInsetsController();
                 if (controller != null) {
-                    // 只收回导航栏；状态栏本来就是常驻隐藏的，一起 show 会让顶部重新
-                    // 出现一条系统栏，退出全屏视频后看着像"掉出全屏"。
                     controller.show(WindowInsets.Type.navigationBars());
-                    controller.hide(WindowInsets.Type.statusBars());
                 }
             } catch (Exception unused) {
             }
         } else {
-            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    | View.SYSTEM_UI_FLAG_FULLSCREEN);
+            View decor = window.getDecorView();
+            decor.setSystemUiVisibility(decor.getSystemUiVisibility()
+                    & ~View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    & ~View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         }
+        // 视频全屏期间状态栏被强制藏掉，退出后要按用户设置恢复：
+        // 常显就显示，隐藏就继续隐藏，正处于黑屏挂机则保持全黑。
+        applyStatusBarVisibility();
     }
 
     private void startKeepAliveService() {

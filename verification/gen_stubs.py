@@ -384,6 +384,7 @@ public class View {
     public static final int SYSTEM_UI_FLAG_LAYOUT_STABLE = 256;
     public static final int SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN = 1024;
     public static final int SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION = 512;
+    public static final int SYSTEM_UI_FLAG_LIGHT_STATUS_BAR = 8192;
     public static final int FOCUS_DOWN = 130;
     public View(android.content.Context context) {}
     public void setBackgroundColor(int color) {}
@@ -393,6 +394,7 @@ public class View {
     public int getSystemUiVisibility() { return systemUiVisibility; }
     public ViewGroup getParent() { return parent; }
     public void setPadding(int left, int top, int right, int bottom) {}
+    public void requestApplyInsets() {}
     public int getPaddingLeft() { return 0; }
     public int getPaddingTop() { return 0; }
     public int getPaddingRight() { return 0; }
@@ -466,6 +468,7 @@ public class WindowInsets {
         public static int navigationBars() { return 2; }
         public static int statusBars() { return 1; }
         public static int ime() { return 8; }
+        public static int displayCutout() { return 16; }
     }
     public android.graphics.Insets getInsets(int typeMask) { return new android.graphics.Insets(); }
 }
@@ -505,6 +508,7 @@ package android.view;
 public class Gravity {
     public static final int CENTER = 17;
     public static final int CENTER_VERTICAL = 16;
+    public static final int TOP = 48;
 }
 """,
 "android/view/MotionEvent.java": """
@@ -945,8 +949,13 @@ public class LinearLayout extends android.view.ViewGroup {
     public void setGravity(int gravity) {}
     public static class LayoutParams extends android.view.ViewGroup.LayoutParams {
         public int topMargin;
+        public float weight;
         public LayoutParams() {}
         public LayoutParams(int width, int height) { super(width, height); }
+        public LayoutParams(int width, int height, float weight) {
+            super(width, height);
+            this.weight = weight;
+        }
     }
 }
 """,

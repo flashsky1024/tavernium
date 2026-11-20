@@ -57,9 +57,23 @@ public final class PerfLog {
         if (inited) {
             return;
         }
-        File base = context.getExternalFilesDir(null);
-        dir = base != null ? new File(base, DIR_NAME) : new File(context.getFilesDir(), DIR_NAME);
-        if (!dir.exists() && !dir.mkdirs()) {
+        // 外部存储并不是总能拿到（未挂载、工作资料、部分定制 ROM 会抛异常）。
+        // 这里绝不能把异常抛给 onCreate：日志系统坏掉的代价应当只是"没有日志"，
+        // 不能连累应用启动。两级兜底，最后一级失败也把 inited 置真，让调用方安静降级。
+        try {
+            File base = context.getExternalFilesDir(null);
+            dir = base != null ? new File(base, DIR_NAME) : null;
+        } catch (Throwable ignored) {
+            dir = null;
+        }
+        if (dir == null) {
+            try {
+                dir = new File(context.getFilesDir(), DIR_NAME);
+            } catch (Throwable ignored) {
+                dir = null;
+            }
+        }
+        if (dir != null && !dir.exists() && !dir.mkdirs()) {
             android.util.Log.w("TavernKeepPerf", "cannot create log dir: " + dir);
         }
         io = Executors.newSingleThreadExecutor(new ThreadFactory() {
@@ -72,7 +86,7 @@ public final class PerfLog {
             }
         });
         inited = true;
-        i("PerfLog", "init dir=" + dir.getAbsolutePath());
+        i("PerfLog", "init dir=" + (dir == null ? "(unavailable)" : dir.getAbsolutePath()));
     }
 
     public static boolean ready() {
@@ -101,6 +115,29 @@ public final class PerfLog {
             return null;
         }
         return new File(dir, FILE_NAME);
+    }
+
+    /**
+     * 参与导出的日志文件：当前文件 + 全部轮转文件，按新到旧排列。
+     *
+     * <p>只导出 {@code perf.log} 会丢掉滚动出去的历史——崩溃往往发生在旧文件里。</p>
+     */
+    public static java.util.List<File> logFiles() {
+        java.util.List<File> out = new java.util.ArrayList<File>(MAX_FILES);
+        if (!inited || dir == null) {
+            return out;
+        }
+        File cur = new File(dir, FILE_NAME);
+        if (cur.isFile()) {
+            out.add(cur);
+        }
+        for (int i = 1; i < MAX_FILES; i++) {
+            File f = new File(dir, FILE_NAME + "." + i);
+            if (f.isFile()) {
+                out.add(f);
+            }
+        }
+        return out;
     }
 
     public static void i(String tag, String msg) {

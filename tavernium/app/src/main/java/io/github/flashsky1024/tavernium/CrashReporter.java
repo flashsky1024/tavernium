@@ -54,7 +54,8 @@ public final class CrashReporter {
         String pkg = context == null ? "io.github.flashsky1024.tavernium"
                 : context.getPackageName();
         return "Android/data/" + pkg + "/files/perf/\n"
-                + "里面的 crash- 开头文件就是崩溃原因。";
+                + "里面的 crash- 开头文件是崩溃原因，perf.log 是运行日志。\n"
+                + "能进界面的话：主菜单 → 高级设置 → 调试与诊断 → 导出日志，会打包成一个 zip。";
     }
     private static final int MAX_CRASH_FILES = 5;
 

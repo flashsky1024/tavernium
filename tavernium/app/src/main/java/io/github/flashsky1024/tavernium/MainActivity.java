@@ -4137,59 +4137,120 @@ public class MainActivity extends Activity {
         });
     }
 
-    /** 把当前性能日志和最近的崩溃记录复制到 下载/SillyTavern/，走 MediaStore，无需存储权限。 */
+    /**
+     * 把运行日志（含轮转文件）和最近的崩溃记录打成一个 zip，写入 下载/SillyTavern/。
+     *
+     * <p>打包而不是逐个文件写：{@code .log} 这类扩展名在不同 ROM 的 MediaStore 上
+     * 表现不一致，逐个写会出现"只导出了 crash、运行日志悄悄丢了"的情况；而且
+     * 一次写入也避免用户拿到一堆散文件不知道怎么回传。</p>
+     */
     private void exportPerfLog() {
-        final File src = PerfLog.currentLog();
-        final java.util.List<File> crashes = CrashReporter.recentCrashFiles(this, 3);
-        if ((src == null || !src.exists()) && crashes.isEmpty()) {
-            Toast.makeText(this, "暂无日志可导出", Toast.LENGTH_SHORT).show();
-            return;
-        }
         new Thread(new Runnable() {
             @Override
             public void run() {
-                int ok = 0;
-                String detail = "";
                 try {
-                    // 文件名带时间戳：多次导出不会互相覆盖，便于对比不同场景
-                    String stamp = new java.text.SimpleDateFormat("MMdd-HHmm", Locale.US)
-                            .format(new java.util.Date());
-                    if (src != null && src.exists()) {
-                        String name = "tavernium-perf-" + stamp + ".log";
-                        ok += copyToDownloads(src, name);
-                        detail = name;
+                    // 队列里的日志可能还没落盘，先等它写完再读文件
+                    PerfLog.flushAndWait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                final java.util.List<File> logs = PerfLog.logFiles();
+                final java.util.List<File> crashes = CrashReporter.recentCrashFiles(MainActivity.this, 5);
+                if (logs.isEmpty() && crashes.isEmpty()) {
+                    toastMain("暂无日志可导出");
+                    return;
+                }
+                java.util.List<File> all = new java.util.ArrayList<File>(logs);
+                all.addAll(crashes);
+                String stamp = new java.text.SimpleDateFormat("MMdd-HHmm", Locale.US)
+                        .format(new java.util.Date());
+                String name = "tavernium-logs-" + stamp + ".zip";
+                File tmp = null;
+                try {
+                    tmp = LogBundle.build(new File(getCacheDir(), "logexport"), all,
+                            buildLogManifest(logs.size(), crashes.size()));
+                    InputStream in = new FileInputStream(tmp);
+                    try {
+                        saveStreamToDownloads(name, "application/zip", in);
+                    } finally {
+                        closeQuietly(in);
                     }
-                    for (File f : crashes) {
-                        // 崩溃记录本身已带时间戳，直接沿用，导出后仍能对上是哪一次
-                        String name = "tavernium-" + f.getName();
-                        ok += copyToDownloads(f, name);
-                        if (detail.length() == 0) {
-                            detail = name;
-                        }
-                    }
-                    if (ok == 0) {
-                        throw new IOException("没有可写入的日志文件");
-                    }
-                    final String msg = ok == 1
-                            ? "日志已导出到 下载/SillyTavern/" + detail
-                            : "已导出 " + ok + " 个文件到 下载/SillyTavern/";
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
-                        }
-                    });
+                    toastMain("已导出 " + all.size() + " 项日志（运行日志 "
+                            + logs.size() + " + 崩溃记录 " + crashes.size()
+                            + "）到 下载/SillyTavern/" + name);
                 } catch (final Exception e) {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(MainActivity.this,
-                                    "导出失败：" + e.getMessage(), Toast.LENGTH_SHORT).show();
-                        }
-                    });
+                    PerfLog.w(TAG, "export bundle failed: " + e.getMessage());
+                    // 打包失败时退回逐个文件，至少把崩溃堆栈带出去
+                    exportLooseFiles(logs, crashes);
+                } finally {
+                    if (tmp != null) {
+                        tmp.delete();
+                    }
                 }
             }
         }).start();
+    }
+
+    /** 压缩包内的说明：谁、什么版本、什么时候导的，回传后不用再问一遍。 */
+    private String buildLogManifest(int perfCount, int crashCount) {
+        StringBuilder sb = new StringBuilder(320);
+        sb.append("Tavernium 日志包\n");
+        sb.append("导出时间：").append(new java.text.SimpleDateFormat(
+                "yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new java.util.Date())).append('\n');
+        sb.append("应用版本：").append(BuildConfig.VERSION_NAME)
+                .append(" (").append(BuildConfig.VERSION_CODE).append(")\n");
+        sb.append("系统：Android ").append(Build.VERSION.RELEASE)
+                .append(" / SDK ").append(Build.VERSION.SDK_INT).append('\n');
+        sb.append("机型：").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n');
+        sb.append("服务器：").append(TextKit.shortUrl(this.serverUrl)).append('\n');
+        sb.append("运行日志：").append(perfCount).append(" 个\n");
+        sb.append("崩溃记录：").append(crashCount).append(" 个\n\n");
+        sb.append("perf.log     最新运行日志\n");
+        sb.append("perf.log.1/2 更早的轮转日志（崩溃常发生在这里面）\n");
+        sb.append("crash-*.txt  崩溃堆栈\n");
+        return sb.toString();
+    }
+
+    /**
+     * 兜底导出：压缩包写不进去时逐个文件复制。
+     *
+     * <p>每个文件独立成败，提示里如实报个数——旧实现无论成功与否都先写 detail，
+     * 失败时也会提示"已导出 xxx.log"，用户去目录里却找不到，只能认为日志丢了。</p>
+     */
+    private void exportLooseFiles(java.util.List<File> logs, java.util.List<File> crashes) {
+        String stamp = new java.text.SimpleDateFormat("MMdd-HHmm", Locale.US)
+                .format(new java.util.Date());
+        int ok = 0;
+        for (File f : logs) {
+            // 兜底路径统一用 .txt：某些 ROM 的 MediaStore 对 .log 会拒绝或改名，
+            // 而 .txt 是 Downloads 集合里兼容性最好的文本类型
+            String base = f.getName();
+            if (base.endsWith(".log")) {
+                base = base.substring(0, base.length() - 4);
+            }
+            ok += copyToDownloads(f, "tavernium-perf-" + stamp + "-" + base + ".txt");
+        }
+        for (File f : crashes) {
+            ok += copyToDownloads(f, "tavernium-" + f.getName());
+        }
+        final int total = logs.size() + crashes.size();
+        if (ok == 0) {
+            toastMain("导出失败：下载目录不可写");
+        } else if (ok < total) {
+            toastMain("部分导出成功（" + ok + "/" + total + "），其余写入失败");
+        } else {
+            toastMain("已导出 " + ok + " 个文件到 下载/SillyTavern/");
+        }
+    }
+
+    /** 后台线程收尾用：统一回主线程弹提示。 */
+    private void toastMain(final String text) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(MainActivity.this, text, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     /** 复制单个文件到下载目录，成功返回 1，失败返回 0 并记日志（不中断其余文件）。 */

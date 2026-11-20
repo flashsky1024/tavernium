@@ -83,7 +83,7 @@ def main():
                   "UpdateChannelTest", "MainActivitySafetyTest", "BridgeSessionTest",
                   "ReplyNotifierTest", "UpdateSecurityTest", "MainBridgeTest",
                   "IdleControllerTest", "UrlKitCompatTest",
-                  "CrashReporterTest"]
+                  "CrashReporterTest", "LogExportTest"]
     for name in java_tests:
         run(name, ["java", "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED",
                    "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",

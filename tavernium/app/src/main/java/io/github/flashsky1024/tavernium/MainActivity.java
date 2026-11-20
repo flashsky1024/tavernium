@@ -135,6 +135,8 @@ public class MainActivity extends Activity {
     private static final String PREF_TRUSTED_HTTP = "trusted_http_origins";
     /** 用户额外添加的第三方登录域名（Discord / SSO 门户），叠加在内置列表之上。 */
     private static final String PREF_LOGIN_HOSTS = "login_hosts";
+    /** 站外链接是否交给系统浏览器；关闭后所有 http(s) 链接都在应用内打开。 */
+    private static final String PREF_OPEN_EXTERNAL = "open_external";
     /**
      * 内置的第三方登录域名。
      *
@@ -276,6 +278,8 @@ public class MainActivity extends Activity {
     private volatile Set<String> trustedHttpOrigins = Collections.emptySet();
     /** 允许在主框架里继续加载的第三方登录域名（含内置项），网络线程会并发读。 */
     private volatile Set<String> loginHosts = Collections.emptySet();
+    /** 站外 http(s) 链接是否交给系统浏览器；关闭后一律留在 WebView。 */
+    private volatile boolean openExternal = true;
     /** 上一次承接 window.open 的时间，用于节流，避免页面狂弹窗口时堆积临时 WebView。 */
     private long lastPopupMs;
 
@@ -1016,6 +1020,7 @@ public class MainActivity extends Activity {
         this.authUser = this.prefs.getString(PREF_USER, EMPTY);
         this.authPass = this.prefs.getString(PREF_PASS, EMPTY);
         this.serverUrl = this.prefs.getString(PREF_SERVER_URL, DEFAULT_SERVER_URL);
+        this.openExternal = this.prefs.getBoolean(PREF_OPEN_EXTERNAL, true);
         reloadTrustedOrigins();
         reloadLoginHosts();
         if (this.cacheManager != null) {
@@ -1806,23 +1811,33 @@ public class MainActivity extends Activity {
                 return false;
             }
             String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
-            if ("http".equals(scheme) || "https".equals(scheme)) {
-                String url = uri.toString();
-                if (sameServerOrigin(url)) {
-                    return false;
-                }
-                // 同一站点的其他子域：云酒馆把账户中心/回调放在主域上，外抛会让
-                // 登录态留在浏览器里。这里只放宽"在哪加载"，桥仍按严格同源开关。
-                if (UrlKit.isSameSite(url, MainActivity.this.serverUrl)) {
-                    PerfLog.i(TAG, "same-site navigation stays inside: "
-                            + TextKit.shortUrl(url));
-                    return false;
-                }
-                if (UrlKit.isLoginHost(url, MainActivity.this.loginHosts)) {
-                    PerfLog.i(TAG, "login navigation stays inside: "
-                            + TextKit.shortUrl(url));
-                    return false;
-                }
+            if (!"http".equals(scheme) && !"https".equals(scheme)) {
+                // intent://、market://、weixin:// 这类只能交给系统：留在 WebView
+                // 里既不会打开对应应用，也换不来任何可用的页面。
+                return openExternally(uri);
+            }
+            String url = uri.toString();
+            if (sameServerOrigin(url)) {
+                return false;
+            }
+            // 同一站点的其他子域：云酒馆把账户中心/回调放在主域上，外抛会让
+            // 登录态留在浏览器里。这里只放宽"在哪加载"，桥仍按严格同源开关。
+            if (UrlKit.isSameSite(url, MainActivity.this.serverUrl)) {
+                PerfLog.i(TAG, "same-site navigation stays inside: "
+                        + TextKit.shortUrl(url));
+                return false;
+            }
+            if (UrlKit.isLoginHost(url, MainActivity.this.loginHosts)) {
+                PerfLog.i(TAG, "login navigation stays inside: "
+                        + TextKit.shortUrl(url));
+                return false;
+            }
+            if (!MainActivity.this.openExternal) {
+                // 用户主动关掉了外抛：站外页面也在壳内开。桥不会跟着放行，
+                // 这些页面拿不到 TavernKeep，和"外抛到浏览器"在权限上等价。
+                PerfLog.i(TAG, "external navigation stays inside (setting off): "
+                        + TextKit.shortUrl(url));
+                return false;
             }
             return openExternally(uri);
         }
@@ -2615,29 +2630,16 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 二级页：不常改的设置，以及需要解释才敢动的高级项。 */
+    /** 二级页：只留入口和真正高频的两项，具体开关分到两个子页。 */
     private void showAdvancedMenu() {
         if (isFinishing() || isDestroyed()) {
             return;
         }
-        int frameRate = this.prefs.getInt(PREF_FRAME_RATE, 0);
-        int idleMode = idleMode();
         String[] items = new String[]{
-                "清空网页缓存",
-                idleMode != IDLE_OFF
-                        ? "渲染帧率：" + frameRateLabel(frameRate) + "（挂机中，实际 "
-                        + frameRateLabel(effectiveFrameRate()) + "）"
-                        : "渲染帧率：" + frameRateLabel(frameRate) + "（点击修改）",
-                "挖孔屏适配：" + cutoutModeLabel() + "（点击修改）",
-                "状态栏：" + (this.prefs.getBoolean(PREF_SHOW_STATUS_BAR, false)
-                        ? "常显（点击隐藏）" : "隐藏（点击常显）"),
-                "jsDelivr 加速：" + jsdAccelLabel() + "（点击设置）",
-                "更新渠道：" + UpdateManager.channelLabel(
-                        UpdateManager.channelOf(this.prefs)) + "（点击切换）",
-                "检查更新（当前 " + BuildConfig.VERSION_NAME + "）",
+                "网络与账号设置…",
+                "显示设置…",
                 "回复完成通知：" + replyNotificationLabel(),
-                "已信任的明文地址：" + this.trustedHttpOrigins.size() + " 个（点击管理）",
-                "登录域名：" + this.loginHosts.size() + " 个（点击管理）",
+                "清空网页缓存",
                 "调试与诊断…"
         };
         new AlertDialog.Builder(this)
@@ -2653,51 +2655,149 @@ public class MainActivity extends Activity {
     }
 
     private void onAdvancedMenuSelected(int i) {
-        WebView wv;
         switch (i) {
             case 0:
-                if (this.cacheManager != null) {
-                    this.cacheManager.clearCache();
-                }
-                wv = this.webView;
-                if (wv != null) {
-                    wv.clearCache(true);
-                    wv.clearHistory();
-                }
-                Toast.makeText(this, "缓存已清空", Toast.LENGTH_SHORT).show();
+                showNetworkAccountMenu();
                 return;
             case 1:
-                showFrameRateDialog();
+                showDisplayMenu();
                 return;
             case 2:
-                showCutoutDialog();
-                return;
-            case 3:
-                toggleStatusBar();
-                return;
-            case 4:
-                showJsdAccelDialog();
-                return;
-            case 5:
-                showUpdateChannelDialog();
-                return;
-            case 6:
-                checkUpdates();
-                return;
-            case 7:
                 showReplyNotificationDialog();
                 return;
-            case 8:
-                showTrustedHttpDialog();
+            case 3:
+                clearWebCache();
                 return;
-            case 9:
-                showLoginHostDialog();
-                return;
-            case 10:
+            case 4:
                 showDebugMenu();
                 return;
             default:
         }
+    }
+
+    /** 网络、登录与更新：平时不动，连不上、登不上、更新失败时才会进来。 */
+    private void showNetworkAccountMenu() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        String[] items = new String[]{
+                this.openExternal
+                        ? "站外链接：用浏览器打开（点击改为应用内）"
+                        : "站外链接：应用内打开（点击改为用浏览器）",
+                "登录域名：" + this.loginHosts.size() + " 个（点击管理）",
+                "已信任的明文地址：" + this.trustedHttpOrigins.size() + " 个（点击管理）",
+                "jsDelivr 加速：" + jsdAccelLabel() + "（点击设置）",
+                "更新渠道：" + UpdateManager.channelLabel(
+                        UpdateManager.channelOf(this.prefs)) + "（点击切换）",
+                "检查更新（当前 " + BuildConfig.VERSION_NAME + "）"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("网络与账号")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialogInterface, int i) {
+                        onNetworkAccountSelected(i);
+                    }
+                })
+                .setNegativeButton("返回", null)
+                .show();
+    }
+
+    private void onNetworkAccountSelected(int i) {
+        switch (i) {
+            case 0:
+                toggleOpenExternal();
+                return;
+            case 1:
+                showLoginHostDialog();
+                return;
+            case 2:
+                showTrustedHttpDialog();
+                return;
+            case 3:
+                showJsdAccelDialog();
+                return;
+            case 4:
+                showUpdateChannelDialog();
+                return;
+            case 5:
+                checkUpdates();
+                return;
+            default:
+        }
+    }
+
+    /**
+     * 站外链接是外抛还是就地打开。
+     *
+     * <p>关掉外抛不会放宽任何权限：站外页面的文档来源不是服务器，原生桥照样不开，
+     * 只是省去了一次"跳浏览器再切回来"。</p>
+     */
+    private void toggleOpenExternal() {
+        boolean now = !this.openExternal;
+        this.openExternal = now;
+        this.prefs.edit().putBoolean(PREF_OPEN_EXTERNAL, now).apply();
+        PerfLog.i(TAG, "open external toggled: " + now);
+        Toast.makeText(this, now
+                        ? "站外链接将交给系统浏览器"
+                        : "站外链接改为应用内打开（自定义 scheme 仍交给系统）",
+                Toast.LENGTH_LONG).show();
+    }
+
+    /** 显示相关：帧率、挖孔、状态栏，都是改完立刻能看见的。 */
+    private void showDisplayMenu() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        int frameRate = this.prefs.getInt(PREF_FRAME_RATE, 0);
+        int idleMode = idleMode();
+        String[] items = new String[]{
+                idleMode != IDLE_OFF
+                        ? "渲染帧率：" + frameRateLabel(frameRate) + "（挂机中，实际 "
+                        + frameRateLabel(effectiveFrameRate()) + "）"
+                        : "渲染帧率：" + frameRateLabel(frameRate) + "（点击修改）",
+                "挖孔屏适配：" + cutoutModeLabel() + "（点击修改）",
+                "状态栏：" + (this.prefs.getBoolean(PREF_SHOW_STATUS_BAR, false)
+                        ? "常显（点击隐藏）" : "隐藏（点击常显）")
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("显示设置")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialogInterface, int i) {
+                        onDisplayMenuSelected(i);
+                    }
+                })
+                .setNegativeButton("返回", null)
+                .show();
+    }
+
+    private void onDisplayMenuSelected(int i) {
+        switch (i) {
+            case 0:
+                showFrameRateDialog();
+                return;
+            case 1:
+                showCutoutDialog();
+                return;
+            case 2:
+                toggleStatusBar();
+                return;
+            default:
+        }
+    }
+
+    /** 清 WebView 缓存与历史；磁盘缓存由 CacheManager 一并作废。 */
+    private void clearWebCache() {
+        if (this.cacheManager != null) {
+            this.cacheManager.clearCache();
+        }
+        WebView wv = this.webView;
+        if (wv != null) {
+            wv.clearCache(true);
+            wv.clearHistory();
+        }
+        Toast.makeText(this, "缓存已清空", Toast.LENGTH_SHORT).show();
     }
 
     /** 挖孔屏适配当前档位的显示名。 */

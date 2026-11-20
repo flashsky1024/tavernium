@@ -1189,15 +1189,23 @@ public class CacheManagerTest {
                         && src.contains("UrlKit.isTrustedMainUrl(str, MainActivity.this.serverUrl)"));
         check("非服务器页面移除接口",
                 src.contains("removeJavascriptInterface(\"TavernKeep\")"));
-        check("高级设置含登录域名入口",
+        check("网络与账号页含登录域名入口",
                 src.contains("\"登录域名：\" + this.loginHosts.size()"));
         check("登录域名可增可删",
                 src.contains("private int addLoginHost(String raw)")
                         && src.contains("putStringSet(PREF_LOGIN_HOSTS"));
         check("内置 Discord", src.contains("\"discord.com\""));
-        check("菜单索引对齐：登录域名在调试之前",
-                src.contains("case 9:\n                showLoginHostDialog();")
-                        && src.contains("case 10:\n                showDebugMenu();"));
+        check("菜单索引对齐：网络账号里登录域名是第 2 项",
+                src.contains("case 1:\n                showLoginHostDialog();")
+                        && src.contains("case 5:\n                checkUpdates();"));
+        check("高级设置拆出网络与显示两个子页",
+                src.contains("private void showNetworkAccountMenu()")
+                        && src.contains("private void showDisplayMenu()"));
+        check("顶层仍直达调试与诊断",
+                src.contains("case 4:\n                showDebugMenu();"));
+        check("站外链接可在应用内打开",
+                src.contains("PREF_OPEN_EXTERNAL")
+                        && src.contains("external navigation stays inside (setting off)"));
     }
 
     private static void testMenuStructure() {

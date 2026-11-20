@@ -62,6 +62,92 @@ final class UrlKit {
         return isSameOrigin(mainUrl, serverUrl);
     }
 
+    /**
+     * 第三方登录域名（Discord、SSO 门户等）是否允许在主框架里继续加载。
+     *
+     * <p>壳默认把站外主框架导航外抛给系统浏览器，这对普通链接是对的：挂 JS 接口的
+     * WebView 不该给别人执行脚本。但 OAuth 是例外——把登录页丢到 Chrome，授权完成后
+     * cookie 落在 Chrome 里，WebView 这边仍然是未登录，回来还得再登一次。</p>
+     *
+     * <p>匹配的是 host 及其子域（{@code discord.com} 覆盖 {@code cdn.discord.com}），
+     * 不支持任意通配。列表项里带 scheme、端口、路径都会被忽略，只取主机名——
+     * 用户在设置里粘整条授权地址是常态。</p>
+     */
+    static boolean isLoginHost(String url, Set<String> loginHosts) {
+        if (loginHosts == null || loginHosts.isEmpty()) {
+            return false;
+        }
+        String host = hostOf(url);
+        if (host.isEmpty()) {
+            return false;
+        }
+        for (String raw : loginHosts) {
+            String item = normalizeLoginHost(raw);
+            if (item.isEmpty()) {
+                continue;
+            }
+            if (host.equals(item) || host.endsWith("." + item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 把用户填的一项归一化成纯主机名；不可用时返回空串。
+     *
+     * <p>拒绝单段名字（{@code com}、{@code localhost}）——放行一个顶级域等于放行
+     * 整个公网，和"只让登录页进来"的初衷正好相反。</p>
+     */
+    static String normalizeLoginHost(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String s = raw.trim().toLowerCase(Locale.ROOT);
+        if (s.isEmpty()) {
+            return "";
+        }
+        // 去掉可能的 scheme
+        int schemeEnd = s.indexOf("://");
+        if (schemeEnd >= 0) {
+            s = s.substring(schemeEnd + 3);
+        }
+        // 去掉 userinfo、路径、查询
+        int cut = s.length();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '/' || c == '?' || c == '#') {
+                cut = i;
+                break;
+            }
+        }
+        s = s.substring(0, cut);
+        int at = s.lastIndexOf('@');
+        if (at >= 0) {
+            s = s.substring(at + 1);
+        }
+        if (s.startsWith("[")) {
+            // IPv6 字面量不作为登录域名，避免格式歧义
+            return "";
+        }
+        int colon = s.indexOf(':');
+        if (colon >= 0) {
+            s = s.substring(0, colon);
+        }
+        if (s.startsWith("*.")) {
+            s = s.substring(2);
+        } else if (s.startsWith(".")) {
+            s = s.substring(1);
+        }
+        if (s.endsWith(".")) {
+            s = s.substring(0, s.length() - 1);
+        }
+        if (s.isEmpty() || s.indexOf('.') < 0 || !isHostChars(s)) {
+            return "";
+        }
+        return s;
+    }
+
     /** 浏览器同源边界包含协议和有效端口，不能只比较 host。 */
     static boolean isSameOrigin(String a, String b) {
         String origin = originOf(a);

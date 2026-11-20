@@ -23,6 +23,7 @@ public final class UrlKitCompatTest {
         updateChain();
         cgnat();
         trustedOrigins();
+        loginHosts();
         System.out.println("PASSED: " + passed + " FAILED: 0");
     }
 
@@ -202,6 +203,46 @@ public final class UrlKitCompatTest {
         check("方括号更新地址与清单同源",
                 UrlKit.isSameOrigin("https://updates.example.com/a[1].apk",
                         "https://updates.example.com/releases.json"));
+    }
+
+    private static void loginHosts() {
+        java.util.Set<String> hosts = new java.util.HashSet<>();
+        hosts.add("discord.com");
+        hosts.add("auth.example.com");
+
+        check("授权地址命中登录域名",
+                UrlKit.isLoginHost("https://discord.com/oauth2/authorize?client_id=1", hosts));
+        check("子域也放行",
+                UrlKit.isLoginHost("https://cdn.discord.com/assets/x.js", hosts));
+        check("自建 SSO 域名命中",
+                UrlKit.isLoginHost("https://auth.example.com/if/flow/default/", hosts));
+        check("后缀相同但不同域不放行",
+                !UrlKit.isLoginHost("https://notdiscord.com/", hosts));
+        check("把登录域名当前缀的伪造地址不放行",
+                !UrlKit.isLoginHost("https://discord.com.evil.example/", hosts));
+        check("无关域名不放行", !UrlKit.isLoginHost("https://example.org/", hosts));
+        check("空列表一律不放行",
+                !UrlKit.isLoginHost("https://discord.com/", java.util.Collections.<String>emptySet()));
+        check("null 列表不放行", !UrlKit.isLoginHost("https://discord.com/", null));
+        check("无法解析的地址不放行", !UrlKit.isLoginHost("about:blank", hosts));
+
+        check("整条 URL 归一化成主机名",
+                "auth.example.com".equals(
+                        UrlKit.normalizeLoginHost("https://auth.example.com/login?next=/")));
+        check("带端口归一化去掉端口",
+                "auth.example.com".equals(UrlKit.normalizeLoginHost("auth.example.com:8443")));
+        check("大写归一化", "discord.com".equals(UrlKit.normalizeLoginHost("  Discord.COM  ")));
+        check("通配写法去掉星号",
+                "example.com".equals(UrlKit.normalizeLoginHost("*.example.com")));
+        check("单段名字拒绝（否则等于放行整个顶级域）",
+                UrlKit.normalizeLoginHost("com").isEmpty());
+        check("localhost 拒绝", UrlKit.normalizeLoginHost("localhost").isEmpty());
+        check("空串拒绝", UrlKit.normalizeLoginHost("   ").isEmpty());
+        check("IPv6 字面量不作为登录域名",
+                UrlKit.normalizeLoginHost("[::1]").isEmpty());
+        check("带凭据的地址只取主机",
+                "auth.example.com".equals(
+                        UrlKit.normalizeLoginHost("https://u:p@auth.example.com/x")));
     }
 
     private static void check(String name, boolean value) {

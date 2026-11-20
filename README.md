@@ -32,7 +32,7 @@ Tavernium 不是又一个 AI 聊天应用，它更像一个转接头：酒馆还
 
 步骤：
 
-1. 到 [Releases](https://github.com/flashsky1024/tavernium/releases) 下载最新的安装包，文件名形如 `tavernium-release-2.0.10.apk`
+1. 到 [Releases](https://github.com/flashsky1024/tavernium/releases) 下载最新的安装包，文件名形如 `tavernium-release-2.0.11.apk`
 2. 在手机上打开安装包。如果系统提示不允许安装未知来源的应用，按提示允许即可
 3. 打开 Tavernium，填入你平时在浏览器里访问酒馆用的地址
 
@@ -83,6 +83,33 @@ Tavernium 不是又一个 AI 聊天应用，它更像一个转接头：酒馆还
 - 只在你看不到聊天界面时提醒：应用在后台、手机锁屏或挂机时
 - 只在角色真正回完一条消息时提醒。开场白、你自己发的消息、系统消息、空消息、静默生成（不显示在聊天里的后台生成）、代写、重复触发、能识别出的生成失败和手动停止，都不会触发
 - 通知里只有一句通用提示，不含角色名和回复内容，锁屏时旁边的人看不到你在聊什么
+
+### 第三方登录：Discord、SSO 门户
+
+酒馆如果开了单点登录（SillyTavern 前面套 Authentik、Keycloak、Cloudflare Access，或者登录页上有「用 Discord 登录」），登录流程会在应用内走完，不会甩到系统浏览器。
+
+原因很直接：OAuth 的登录态是 cookie，落在哪个浏览器就归哪个浏览器。把授权页丢给 Chrome，授完权回应用还是未登录，等于白登一次。
+
+内置放行的域名：
+
+```text
+discord.com  discordapp.com  cloudflareaccess.com
+accounts.google.com  github.com
+login.microsoftonline.com  appleid.apple.com
+```
+
+自建的单点登录用自己的域名，需要手动加一次：
+
+```text
+高级设置 → 登录域名 → 添加
+```
+
+填域名就行（`auth.example.com`），粘整条登录地址也能识别，会自动去掉协议、端口和路径。加完之后，跳转到这个域名的登录页会留在应用内。
+
+两点说明：
+
+- 只在**主页面跳转**时放行。这些页面拿不到 `TavernKeep` 原生接口——接口按文档来源开关，只有酒馆自己的页面才有
+- 其他站外链接仍然交给系统浏览器，这条没变
 
 ### 导出文件
 
@@ -210,7 +237,7 @@ onCreate
 
 ```bash
 cd verification && python3 run_verify.py
-# 708 项 PASS，0 FAIL
+# 734 项 PASS，0 FAIL
 ```
 
 不需要 Android SDK，有 JDK、Node.js 和 Python 3 就能跑：
@@ -224,12 +251,12 @@ cd verification && python3 run_verify.py
 
 | 项 | 值 |
 |---|---|
-| 版本 | 2.0.10（versionCode 62） |
+| 版本 | 2.0.11（versionCode 63） |
 | 包名 | `io.github.flashsky1024.tavernium`（debug 版为 `io.github.flashsky1024.tavernium.debug`） |
 | 系统要求 | Android 7.0（API 24）及以上 |
 | targetSdk / compileSdk | 34 / 36 |
 | 语言 | Java 17 |
-| 安装包 | release 243,060 字节（约 237 KB），debug 1,145,126 字节（约 1.1 MB） |
+| 安装包 | release 245,284 字节（约 240 KB），debug 1,148,814 字节（约 1.1 MB） |
 | CPU 架构 | 不限，纯 Java，没有 native 库 |
 | 签名证书 | `CN=Tavernium, O=flashsky1024`，4096 位 RSA，有效期至 2054 年 |
 

@@ -59,6 +59,7 @@ public class CacheManagerTest {
         testFrameRateHelpers();
         testBuildVersion();
         testMenuStructure();
+        testLoginHostWiring();
         testInsetsControllerGuard();
         testJsdMirror();
         testFrameRateHookTiming();
@@ -1174,6 +1175,29 @@ public class CacheManagerTest {
                 statusBar.length() > 0 && !statusBar.contains("window.getInsetsController()"));
         check("onCreate 的窗口装饰有异常兜底",
                 src.contains("window tuning failed"));
+    }
+
+    /** 第三方登录（Discord / 自建 SSO）必须在壳内跑完，否则 cookie 落在浏览器里等于没登。 */
+    private static void testLoginHostWiring() {
+        section("第三方登录域名");
+        String src = readSource("MainActivity.java");
+        check("外链判定区分登录域名",
+                src.contains("UrlKit.isLoginHost(url, MainActivity.this.loginHosts)"));
+        check("登录跳转留在 WebView", src.contains("login navigation stays inside"));
+        check("逐次导航按来源开关原生桥",
+                src.contains("MainActivity.this.setBridgeEnabled(webView,")
+                        && src.contains("UrlKit.isTrustedMainUrl(str, MainActivity.this.serverUrl)"));
+        check("非服务器页面移除接口",
+                src.contains("removeJavascriptInterface(\"TavernKeep\")"));
+        check("高级设置含登录域名入口",
+                src.contains("\"登录域名：\" + this.loginHosts.size()"));
+        check("登录域名可增可删",
+                src.contains("private int addLoginHost(String raw)")
+                        && src.contains("putStringSet(PREF_LOGIN_HOSTS"));
+        check("内置 Discord", src.contains("\"discord.com\""));
+        check("菜单索引对齐：登录域名在调试之前",
+                src.contains("case 9:\n                showLoginHostDialog();")
+                        && src.contains("case 10:\n                showDebugMenu();"));
     }
 
     private static void testMenuStructure() {

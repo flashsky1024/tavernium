@@ -43,6 +43,14 @@ public final class R {
     }
 }
 """,
+"android/os/Message.java": """
+package android.os;
+public class Message {
+    public Object obj;
+    public int what;
+    public void sendToTarget() {}
+}
+""",
 "android/os/Build.java": """
 package android.os;
 public class Build {
@@ -407,6 +415,7 @@ public class View {
     public ViewGroup getParent() { return parent; }
     public void setPadding(int left, int top, int right, int bottom) {}
     public void requestApplyInsets() {}
+    public boolean postDelayed(Runnable action, long delayMillis) { return true; }
     public int getPaddingLeft() { return 0; }
     public int getPaddingTop() { return 0; }
     public int getPaddingRight() { return 0; }
@@ -822,6 +831,7 @@ public class WebSettings {
     public void setBuiltInZoomControls(boolean enabled) {}
     public void setGeolocationEnabled(boolean flag) {}
     public void setUserAgentString(String ua) {}
+    public void setSupportMultipleWindows(boolean support) {}
     public String getUserAgentString() { return null; }
 }
 """,
@@ -853,6 +863,7 @@ package android.webkit;
 import android.net.Uri;
 import android.view.View;
 public class WebChromeClient {
+    public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) { return false; }
     public boolean onShowFileChooser(WebView webView, ValueCallback<android.net.Uri[]> filePathCallback,
                                      FileChooserParams fileChooserParams) { return false; }
     public void onShowCustomView(View view, CustomViewCallback callback) {}
@@ -900,6 +911,9 @@ public class WebView extends android.view.View {
     public WebSettings getSettings() { return null; }
     public void addJavascriptInterface(Object object, String name) {}
     public void removeJavascriptInterface(String name) {}
+    public static class WebViewTransport {
+        public void setWebView(WebView webview) {}
+    }
     public void setWebViewClient(WebViewClient client) {}
     public void setWebChromeClient(WebChromeClient client) {}
     public void setDownloadListener(DownloadListener listener) {}
@@ -1253,11 +1267,29 @@ final class JSONParser {
     }
 }
 """,
+"android/text/TextUtils.java": """
+package android.text;
+public class TextUtils {
+    public static String join(CharSequence delimiter, Object[] tokens) {
+        if (tokens == null || tokens.length == 0) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < tokens.length; i++) {
+            if (i > 0) sb.append(delimiter);
+            sb.append(tokens[i]);
+        }
+        return sb.toString();
+    }
+    public static boolean isEmpty(CharSequence s) {
+        return s == null || s.length() == 0;
+    }
+}
+""",
 "android/text/InputType.java": """
 package android.text;
 public interface InputType {
     int TYPE_CLASS_TEXT = 1;
     int TYPE_TEXT_VARIATION_PASSWORD = 128;
+    int TYPE_TEXT_VARIATION_URI = 16;
 }
 """,
 "android/widget/Toast.java": """

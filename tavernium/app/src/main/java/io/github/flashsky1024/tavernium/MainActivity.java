@@ -19,6 +19,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.Message;
 import android.os.PowerManager;
 import android.os.Process;
 import android.os.SystemClock;
@@ -50,6 +51,7 @@ import android.webkit.WebViewClient;
 import android.webkit.WebViewDatabase;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.text.TextUtils;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -131,6 +133,21 @@ public class MainActivity extends Activity {
     private static final String PREF_SHOW_STATUS_BAR = "show_status_bar";
     /** 用户手动信任的明文 http origin（精确到 scheme://host:port）。 */
     private static final String PREF_TRUSTED_HTTP = "trusted_http_origins";
+    /** 用户额外添加的第三方登录域名（Discord / SSO 门户），叠加在内置列表之上。 */
+    private static final String PREF_LOGIN_HOSTS = "login_hosts";
+    /**
+     * 内置的第三方登录域名。
+     *
+     * <p>OAuth 必须在同一个 WebView 里走完：把授权页丢到系统浏览器，cookie 会落在
+     * 浏览器自己的存储里，回调回来 WebView 依旧未登录。这几个是 SillyTavern 及其
+     * 常见前置代理会跳转的域名，其余（自建 Authentik、Keycloak 等）由用户自己加。</p>
+     */
+    private static final String[] DEFAULT_LOGIN_HOSTS = new String[]{
+            "discord.com", "discordapp.com",
+            "accounts.google.com", "github.com",
+            "login.microsoftonline.com", "appleid.apple.com",
+            "cloudflareaccess.com"
+    };
     private static final String JSD_MIRROR_BASE = "https://jsd.onmicrosoft.cn";
     private static final String JSD_PROBE_PATH = "/npm/jquery@3.7.1/package.json";
 
@@ -257,6 +274,10 @@ public class MainActivity extends Activity {
     private volatile String serverUrl = EMPTY;
     /** 用户显式信任的明文 http origin：整体替换而不原地修改，配合 volatile 保证可见。 */
     private volatile Set<String> trustedHttpOrigins = Collections.emptySet();
+    /** 允许在主框架里继续加载的第三方登录域名（含内置项），网络线程会并发读。 */
+    private volatile Set<String> loginHosts = Collections.emptySet();
+    /** 上一次承接 window.open 的时间，用于节流，避免页面狂弹窗口时堆积临时 WebView。 */
+    private long lastPopupMs;
 
     /**
      * 401 自动重试的窗口计数。
@@ -616,6 +637,12 @@ public class MainActivity extends Activity {
         this.userAgent = settings.getUserAgentString()
                 + " Tavernium/" + BuildConfig.VERSION_NAME;
         settings.setUserAgentString(this.userAgent);
+        // OAuth 常以 window.open 弹出授权页。默认关闭多窗口时脚本拿到的返回值是 null，
+        // 多数前端会当成"被拦截"直接放弃，表现就是点了登录没反应。
+        try {
+            settings.setSupportMultipleWindows(true);
+        } catch (Exception ignored) {
+        }
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(this.webView, true);
@@ -650,6 +677,81 @@ public class MainActivity extends Activity {
             @Override
             public void onShowCustomView(View view, WebChromeClient.CustomViewCallback callback) {
                 MainActivity.this.showCustomView(view, callback);
+            }
+
+            /**
+             * 承接 {@code window.open}：登录弹窗转到主页面，其余弹窗照旧不显示。
+             *
+             * <p>Android 里 onCreateWindow 拿不到目标地址，只能先塞一个临时 WebView 让它
+             * 真正开始导航，再在 shouldOverrideUrlLoading 里判断去向。目标不是登录域名
+             * 就直接拦下不加载——壳没有标签栏，"打开新窗口"本来也没有可展示的地方，
+             * 只是别让它在后台偷偷跑流量。</p>
+             */
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
+                                          Message resultMsg) {
+                if (resultMsg == null
+                        || !(resultMsg.obj instanceof WebView.WebViewTransport)) {
+                    return false;
+                }
+                long now = SystemClock.elapsedRealtime();
+                if (now - MainActivity.this.lastPopupMs < 1200L) {
+                    return false;
+                }
+                MainActivity.this.lastPopupMs = now;
+                final MainActivity host = MainActivity.this;
+                final WebView proxy = new WebView(host);
+                try {
+                    proxy.getSettings().setJavaScriptEnabled(true);
+                } catch (Throwable ignored) {
+                }
+                Runnable cleanup = new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            proxy.stopLoading();
+                        } catch (Throwable ignored) {
+                        }
+                        try {
+                            proxy.destroy();
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                };
+                final Runnable finish = cleanup;
+                proxy.setWebViewClient(new WebViewClient() {
+                    private boolean done;
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
+                        if (done || request == null) {
+                            return true;
+                        }
+                        done = true;
+                        Uri target = request.getUrl();
+                        String url = target == null ? EMPTY : target.toString();
+                        if (UrlKit.isLoginHost(url, host.loginHosts)) {
+                            PerfLog.i(TAG, "login popup -> main view: "
+                                    + TextKit.shortUrl(url));
+                            WebView main = host.webView;
+                            if (main != null) {
+                                main.loadUrl(url);
+                            }
+                        }
+                        finish.run();
+                        return true;
+                    }
+                });
+                try {
+                    ((WebView.WebViewTransport) resultMsg.obj).setWebView(proxy);
+                    resultMsg.sendToTarget();
+                } catch (Throwable t) {
+                    finish.run();
+                    return false;
+                }
+                // window.open 后由脚本写入内容时不会有可识别的地址，到点直接回收
+                proxy.postDelayed(finish, 3000L);
+                return true;
             }
 
             @Override
@@ -915,6 +1017,7 @@ public class MainActivity extends Activity {
         this.authPass = this.prefs.getString(PREF_PASS, EMPTY);
         this.serverUrl = this.prefs.getString(PREF_SERVER_URL, DEFAULT_SERVER_URL);
         reloadTrustedOrigins();
+        reloadLoginHosts();
         if (this.cacheManager != null) {
             this.cacheManager.setCredentialOrigin(this.serverUrl);
         }
@@ -932,6 +1035,58 @@ public class MainActivity extends Activity {
         this.trustedHttpOrigins = (stored == null || stored.isEmpty())
                 ? Collections.<String>emptySet()
                 : Collections.unmodifiableSet(new HashSet<>(stored));
+    }
+
+    /**
+     * 重新计算登录域名集合：内置项 + 用户自建项。
+     *
+     * <p>内置项不写进偏好，这样以后加新域名时老用户也能自动获得；用户项单独存，
+     * 删掉某项时只需要动自己的那份，不会把内置项一起删没。</p>
+     */
+    private void reloadLoginHosts() {
+        Set<String> merged = new HashSet<>();
+        for (String h : DEFAULT_LOGIN_HOSTS) {
+            String n = UrlKit.normalizeLoginHost(h);
+            if (!n.isEmpty()) {
+                merged.add(n);
+            }
+        }
+        for (String h : customLoginHosts()) {
+            String n = UrlKit.normalizeLoginHost(h);
+            if (!n.isEmpty()) {
+                merged.add(n);
+            }
+        }
+        this.loginHosts = Collections.unmodifiableSet(merged);
+    }
+
+    /** 用户自己添加的登录域名（原始文本，未归一化），用于设置界面展示。 */
+    private Set<String> customLoginHosts() {
+        Set<String> stored = this.prefs == null ? null : this.prefs.getStringSet(PREF_LOGIN_HOSTS, null);
+        return (stored == null || stored.isEmpty())
+                ? Collections.<String>emptySet()
+                : new HashSet<>(stored);
+    }
+
+    /**
+     * 按文档来源开关原生桥。
+     *
+     * <p>允许登录页在壳内加载之后，非服务器页面也会进入这个 WebView。虽然接口方法本身
+     * 都带 token 校验，但"第三方页面根本看不到 window.TavernKeep"才是干净的做法——
+     * 少一层可被探测的攻击面，也省得以后新增方法时忘了加校验。</p>
+     */
+    private void setBridgeEnabled(WebView webView, boolean enabled) {
+        if (webView == null) {
+            return;
+        }
+        try {
+            if (enabled) {
+                webView.addJavascriptInterface(new WebAppInterface(this), "TavernKeep");
+            } else {
+                webView.removeJavascriptInterface("TavernKeep");
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 地址是否可加载：默认策略放行，或用户显式信任过的明文 origin。 */
@@ -1651,9 +1806,16 @@ public class MainActivity extends Activity {
                 return false;
             }
             String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
-            if (("http".equals(scheme) || "https".equals(scheme))
-                    && sameServerOrigin(uri.toString())) {
-                return false;
+            if ("http".equals(scheme) || "https".equals(scheme)) {
+                String url = uri.toString();
+                if (sameServerOrigin(url)) {
+                    return false;
+                }
+                if (UrlKit.isLoginHost(url, MainActivity.this.loginHosts)) {
+                    PerfLog.i(TAG, "login navigation stays inside: "
+                            + TextKit.shortUrl(url));
+                    return false;
+                }
             }
             return openExternally(uri);
         }
@@ -1672,6 +1834,10 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPageStarted(WebView webView, String str, Bitmap bitmap) {
+            // 登录页一旦被允许在壳内加载，它就和酒馆共用同一个 WebView。原生接口是
+            // WebView 级的，这里按文档来源开关：只有服务器自己的页面才拿得到 TavernKeep。
+            MainActivity.this.setBridgeEnabled(webView,
+                    UrlKit.isTrustedMainUrl(str, MainActivity.this.serverUrl));
             // 新的一次导航开始，上一次的失败提示先收起来；真失败会在 onReceivedError 里再亮。
             MainActivity.this.hideConnectionBar();
             MainActivity.this.authRetryCount = 0;
@@ -2462,6 +2628,7 @@ public class MainActivity extends Activity {
                 "检查更新（当前 " + BuildConfig.VERSION_NAME + "）",
                 "回复完成通知：" + replyNotificationLabel(),
                 "已信任的明文地址：" + this.trustedHttpOrigins.size() + " 个（点击管理）",
+                "登录域名：" + this.loginHosts.size() + " 个（点击管理）",
                 "调试与诊断…"
         };
         new AlertDialog.Builder(this)
@@ -2515,6 +2682,9 @@ public class MainActivity extends Activity {
                 showTrustedHttpDialog();
                 return;
             case 9:
+                showLoginHostDialog();
+                return;
+            case 10:
                 showDebugMenu();
                 return;
             default:
@@ -2600,6 +2770,136 @@ public class MainActivity extends Activity {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         forgetTrustedOrigin(origin);
+                        Toast.makeText(MainActivity.this, "已移除", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /**
+     * 第三方登录域名管理。
+     *
+     * <p>这里只列用户自己加的项：内置那批随版本更新，用户删不掉也不需要管理。</p>
+     */
+    private void showLoginHostDialog() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        final String[] custom = customLoginHosts().toArray(new String[0]);
+        java.util.Arrays.sort(custom);
+        if (custom.length == 0) {
+            showLoginHostIntro();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("登录域名（点击移除）")
+                .setItems(custom, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        confirmRemoveLoginHost(custom[which]);
+                    }
+                })
+                .setPositiveButton("添加", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        showAddLoginHostDialog();
+                    }
+                })
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    /** 还没有自定义项时的说明页：只讲内置了什么、为什么自建 SSO 要手动加。 */
+    private void showLoginHostIntro() {
+        new AlertDialog.Builder(this)
+                .setTitle("第三方登录域名")
+                .setMessage("内置 " + DEFAULT_LOGIN_HOSTS.length + " 个常见登录域名，跳转时留在应用内：\n"
+                        + TextUtils.join("、", DEFAULT_LOGIN_HOSTS) + "\n\n"
+                        + "自建的单点登录（Authentik、Keycloak、Authelia 等）要把它自己的域名加进来，"
+                        + "否则登录页会被交给系统浏览器，授权完成后应用里仍是未登录。")
+                .setPositiveButton("添加", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        showAddLoginHostDialog();
+                    }
+                })
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    private void showAddLoginHostDialog() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("auth.example.com");
+        input.setInputType(android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        int pad = (int) (getResources().getDisplayMetrics().density * 16.0f);
+        input.setPadding(pad, pad / 2, pad, pad / 2);
+        new AlertDialog.Builder(this)
+                .setTitle("添加登录域名")
+                .setMessage("填域名就行，粘贴整条登录地址也能识别。\n"
+                        + "添加后，跳转到该域名的登录页会留在应用内完成，授权完直接回到酒馆。")
+                .setView(input)
+                .setPositiveButton("添加", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        String raw = input.getText() == null ? EMPTY : input.getText().toString();
+                        int result = addLoginHost(raw);
+                        if (result == 1) {
+                            Toast.makeText(MainActivity.this, "已添加，下次登录生效",
+                                    Toast.LENGTH_SHORT).show();
+                        } else if (result == 2) {
+                            Toast.makeText(MainActivity.this, "这个域名已经在列表里",
+                                    Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(MainActivity.this,
+                                    "域名格式不对，只需主机名，例如 auth.example.com",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 返回 1 添加成功 / 2 已存在 / 0 格式不可用。 */
+    private int addLoginHost(String raw) {
+        String host = UrlKit.normalizeLoginHost(raw);
+        if (host.isEmpty()) {
+            return 0;
+        }
+        if (this.loginHosts.contains(host)) {
+            return 2;
+        }
+        Set<String> next = customLoginHosts();
+        if (!next.add(host)) {
+            return 2;
+        }
+        if (this.prefs != null) {
+            this.prefs.edit().putStringSet(PREF_LOGIN_HOSTS, next).apply();
+        }
+        reloadLoginHosts();
+        return 1;
+    }
+
+    private void confirmRemoveLoginHost(final String host) {
+        new AlertDialog.Builder(this)
+                .setTitle("移除登录域名")
+                .setMessage(host + "\n\n移除后，登录跳到这个域名时会重新交给系统浏览器。")
+                .setPositiveButton("移除", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        Set<String> next = customLoginHosts();
+                        if (next.remove(host)) {
+                            if (MainActivity.this.prefs != null) {
+                                MainActivity.this.prefs.edit()
+                                        .putStringSet(PREF_LOGIN_HOSTS, next).apply();
+                            }
+                            reloadLoginHosts();
+                        }
                         Toast.makeText(MainActivity.this, "已移除", Toast.LENGTH_SHORT).show();
                     }
                 })

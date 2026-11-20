@@ -94,6 +94,68 @@ final class UrlKit {
     }
 
     /**
+     * 目标地址是否与服务器属于同一站点（同一注册域的不同子域）。
+     *
+     * <p>云酒馆这类托管服务把主站放在 {@code pixcora.com}、租户放在
+     * {@code test.pixcora.com}，OAuth 回调、账户中心、支付页很可能落在主域上。
+     * 严格同源判定会把它们全部外抛给浏览器，登录态就留在浏览器里回不来了。</p>
+     *
+     * <p>放行范围：服务器自身、它的子域、以及它的父域（父域本身不能是
+     * {@code com.cn} 这类公共后缀）。放行只影响"页面在哪加载"，不影响原生桥——
+     * 桥仍然只在严格同源时打开。</p>
+     */
+    static boolean isSameSite(String url, String serverUrl) {
+        String host = hostOf(url);
+        String server = hostOf(serverUrl);
+        if (host.isEmpty() || server.isEmpty()) {
+            return false;
+        }
+        if (host.equals(server)) {
+            return true;
+        }
+        // 单段主机名（localhost）只能匹配自身：放行 "*.localhost" 等于放行任意名字
+        if (server.indexOf('.') < 0) {
+            return false;
+        }
+        if (host.endsWith("." + server)) {
+            return true;
+        }
+        String parent = parentDomain(server);
+        return !parent.isEmpty() && (host.equals(parent) || host.endsWith("." + parent));
+    }
+
+    /** 公共后缀的常见第二段：出现这些词时不再向上取父域，避免放行整个 {@code *.com.cn}。 */
+    private static final String[] GENERIC_SLD = new String[]{
+            "com", "net", "org", "gov", "edu", "co", "ac", "or", "ne", "go",
+            "in", "me", "info", "biz", "dev", "app", "io"
+    };
+
+    /**
+     * 服务器的父域（{@code test.pixcora.com -> pixcora.com}）；不可用时返回空串。
+     *
+     * <p>IP、单段主机名、两段域名（本身就是站点根）都返回空。</p>
+     */
+    private static String parentDomain(String host) {
+        if (host.indexOf(':') >= 0) {
+            return ""; // IPv6
+        }
+        if (host.matches("[0-9.]+")) {
+            return ""; // IPv4
+        }
+        String[] parts = host.split("\\.");
+        if (parts.length < 3) {
+            return "";
+        }
+        String sld = parts[parts.length - 2];
+        for (String generic : GENERIC_SLD) {
+            if (generic.equals(sld)) {
+                return "";
+            }
+        }
+        return sld + "." + parts[parts.length - 1];
+    }
+
+    /**
      * 把用户填的一项归一化成纯主机名；不可用时返回空串。
      *
      * <p>拒绝单段名字（{@code com}、{@code localhost}）——放行一个顶级域等于放行

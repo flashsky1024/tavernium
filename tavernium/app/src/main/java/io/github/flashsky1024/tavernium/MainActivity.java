@@ -1811,6 +1811,13 @@ public class MainActivity extends Activity {
                 if (sameServerOrigin(url)) {
                     return false;
                 }
+                // 同一站点的其他子域：云酒馆把账户中心/回调放在主域上，外抛会让
+                // 登录态留在浏览器里。这里只放宽"在哪加载"，桥仍按严格同源开关。
+                if (UrlKit.isSameSite(url, MainActivity.this.serverUrl)) {
+                    PerfLog.i(TAG, "same-site navigation stays inside: "
+                            + TextKit.shortUrl(url));
+                    return false;
+                }
                 if (UrlKit.isLoginHost(url, MainActivity.this.loginHosts)) {
                     PerfLog.i(TAG, "login navigation stays inside: "
                             + TextKit.shortUrl(url));
@@ -1822,6 +1829,8 @@ public class MainActivity extends Activity {
 
         /** 用系统浏览器/对应应用打开链接，返回 true 表示这次导航已被消费。 */
         private boolean openExternally(Uri uri) {
+            // 成功外抛也要留痕：用户反馈"怎么跳出去了"时，没有这条日志就只能猜
+            PerfLog.i(TAG, "open externally: " + TextKit.shortUrl(uri.toString()));
             try {
                 startActivity(new Intent(Intent.ACTION_VIEW, uri));
             } catch (Exception e) {

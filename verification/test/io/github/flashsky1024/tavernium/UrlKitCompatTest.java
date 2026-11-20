@@ -24,7 +24,43 @@ public final class UrlKitCompatTest {
         cgnat();
         trustedOrigins();
         loginHosts();
+        sameSite();
         System.out.println("PASSED: " + passed + " FAILED: 0");
+    }
+
+    /**
+     * 同一站点的子域放行：云酒馆主域与租户子域之间跳转不该外抛。
+     *
+     * <p>边界比登录域名更严：只能向上收敛到服务器自己的父域，不能借后缀伪造
+     * 混进来（{@code pixcora.com.evil.example}），也不能因为服务器是
+     * {@code com.cn} 这类公共后缀就放行整个后缀空间。</p>
+     */
+    private static void sameSite() {
+        String server = "https://test.pixcora.com/";
+        check("服务器自身是同站", UrlKit.isSameSite("https://test.pixcora.com/chat", server));
+        check("主域是同站", UrlKit.isSameSite("https://pixcora.com/login", server));
+        check("主域的其他子域也是同站",
+                UrlKit.isSameSite("https://www.pixcora.com/", server));
+        check("主域深层子域是同站",
+                UrlKit.isSameSite("https://a.b.pixcora.com/", server));
+        check("反向：主域服务器接受租户子域",
+                UrlKit.isSameSite("https://test.pixcora.com/", "https://pixcora.com/"));
+        check("不同站点不放行", !UrlKit.isSameSite("https://discord.com/", server));
+        check("后缀伪造不放行",
+                !UrlKit.isSameSite("https://pixcora.com.evil.example/", server));
+        check("前缀伪造不放行",
+                !UrlKit.isSameSite("https://evilpixcora.com/", server));
+        check("公共后缀不向上收敛（com.cn）",
+                !UrlKit.isSameSite("https://other.com.cn/", "https://shop.example.com.cn/"));
+        check("公共后缀下不推断兄弟子域（保守，宁可外抛）",
+                !UrlKit.isSameSite("https://cdn.example.com.cn/", "https://shop.example.com.cn/"));
+        check("IP 只匹配自身",
+                UrlKit.isSameSite("http://192.168.1.5:8000/", "http://192.168.1.5:8000/"));
+        check("IP 邻居不放行",
+                !UrlKit.isSameSite("http://192.168.1.6/", "http://192.168.1.5:8000/"));
+        check("localhost 只匹配自身",
+                !UrlKit.isSameSite("http://evil.localhost/", "http://localhost:8000/"));
+        check("空地址不放行", !UrlKit.isSameSite("about:blank", server));
     }
 
     /** RFC 6598 共享地址空间：Tailscale 等组网工具默认分配这一段。 */

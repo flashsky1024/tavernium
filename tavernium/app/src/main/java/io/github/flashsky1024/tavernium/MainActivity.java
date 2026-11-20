@@ -497,11 +497,11 @@ public class MainActivity extends Activity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("已更新到 " + BuildConfig.VERSION_NAME)
-                .setMessage("• 修掉挖孔屏顶部的黑边，内容真正铺满整屏\n"
-                        + "• 新增「挖孔屏适配」，可选自适应 / 始终占用 / 避开挖孔\n"
-                        + "• 支持 Tailscale 等 100.64.x.x 组网地址\n"
-                        + "• 主菜单精简，其余项收进「高级设置」\n\n"
-                        + "挖孔屏适配在「高级设置」里，默认自适应。")
+                .setMessage("• 主菜单拆出「网络与账号」「显示设置」两页，服务器、登录都在第一页\n"
+                        + "• 高级设置改名为「更新、调试与其他设置」，更新渠道与检查更新在这里\n"
+                        + "• 新增站外链接开关，可改为在应用内打开\n"
+                        + "• 同站子域不再外跳，云酒馆这类主域与租户分域部署也能在壳内登录\n\n"
+                        + "找不到某项时，先看「网络与账号」和「显示设置」，其余都在最后一个入口里。")
                 .setPositiveButton("知道了", null)
                 .setNeutralButton("查看指引", new DialogInterface.OnClickListener() {
                     @Override
@@ -2322,7 +2322,7 @@ public class MainActivity extends Activity {
                 + "如果进页面后看到的是 SillyTavern 自己的登录界面，上面两栏留空即可——"
                 + "直接在里面登录，App 会自动记住。\n\n"
                 + SERVER_URL_HELP + "\n\n"
-                + "填错或以后要改，可在菜单里「重新输入账号密码」或「退出登录」。");
+                + "填错或以后要改，可在「网络与账号」里重新输入账号密码或退出登录。");
         note.setTextSize(12);
         note.setLineSpacing(2 * density, 1.0f);
         LinearLayout.LayoutParams lp4 = new LinearLayout.LayoutParams(
@@ -2550,21 +2550,18 @@ public class MainActivity extends Activity {
         }
         boolean keepOn = this.prefs.getBoolean(PREF_KEEP_SCREEN_ON, true);
         boolean pauseBg = this.prefs.getBoolean(PREF_PAUSE_IN_BACKGROUND, false);
-        // 主菜单只放"打开就想点"的入口。帧率、加速、更新、通知、诊断这些设一次
-        // 就不再动的项统一收进「高级设置」——否则一次列出十六项，常用的前几项
-        // 被淹没，返回键菜单也越来越像设置页。
+        // 主菜单只放"打开就想点"的入口。服务器、账号、显示、更新这些要翻来改去的
+        // 项按域分成三个子页，一次列出十几项反而找不到东西。
         String[] items = new String[]{
                 "返回上一级",
                 keepOn ? "屏幕常亮：开（点击关闭省电）" : "屏幕常亮：关（点击开启）",
-                pauseBg ? "后台暂停网页：开（点击切回复旦）" : "后台暂停网页：关（点击开启省电）",
+                pauseBg ? "后台暂停网页：开（点击切回恢复）" : "后台暂停网页：关（点击开启省电）",
                 "挂机模式：" + idleModeLabel() + "（点击切换）",
                 "重新加载页面",
-                "修改服务器地址",
-                "重新输入账号密码",
-                "退出登录" + (this.loginModeNative
-                        ? "（SillyTavern 账号）" : "（Basic Auth / 无密码）"),
-                "使用指引",
-                "高级设置…"
+                "网络与账号设置…",
+                "显示设置…",
+                "更新、调试与其他设置…",
+                "使用指引"
         };
         new AlertDialog.Builder(this)
                 .setTitle("Tavernium")
@@ -2612,55 +2609,53 @@ public class MainActivity extends Activity {
                 }
                 return;
             case 5:
-                showServerDialog();
+                showNetworkAccountMenu();
                 return;
             case 6:
-                showAuthDialog(false);
+                showDisplayMenu();
                 return;
             case 7:
-                confirmLogout();
+                showUpdateDebugMenu();
                 return;
             case 8:
                 showGuideDialog();
-                return;
-            case 9:
-                showAdvancedMenu();
                 return;
             default:
         }
     }
 
-    /** 二级页：只留入口和真正高频的两项，具体开关分到两个子页。 */
-    private void showAdvancedMenu() {
+    /** 更新渠道、通知、缓存与诊断；改名后不再兜住网络和显示的开关。 */
+    private void showUpdateDebugMenu() {
         if (isFinishing() || isDestroyed()) {
             return;
         }
         String[] items = new String[]{
-                "网络与账号设置…",
-                "显示设置…",
+                "更新渠道：" + UpdateManager.channelLabel(
+                        UpdateManager.channelOf(this.prefs)) + "（点击切换）",
+                "检查更新（当前 " + BuildConfig.VERSION_NAME + "）",
                 "回复完成通知：" + replyNotificationLabel(),
                 "清空网页缓存",
                 "调试与诊断…"
         };
         new AlertDialog.Builder(this)
-                .setTitle("高级设置")
+                .setTitle("更新、调试与其他设置")
                 .setItems(items, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialogInterface, int i) {
-                        onAdvancedMenuSelected(i);
+                        onUpdateDebugSelected(i);
                     }
                 })
                 .setNegativeButton("返回", null)
                 .show();
     }
 
-    private void onAdvancedMenuSelected(int i) {
+    private void onUpdateDebugSelected(int i) {
         switch (i) {
             case 0:
-                showNetworkAccountMenu();
+                showUpdateChannelDialog();
                 return;
             case 1:
-                showDisplayMenu();
+                checkUpdates();
                 return;
             case 2:
                 showReplyNotificationDialog();
@@ -2675,24 +2670,25 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 网络、登录与更新：平时不动，连不上、登不上、更新失败时才会进来。 */
+    /** 服务器、登录与网络：连不上、登不上时才进来，顺手把改地址也收在这里。 */
     private void showNetworkAccountMenu() {
         if (isFinishing() || isDestroyed()) {
             return;
         }
         String[] items = new String[]{
+                "修改服务器地址",
+                "重新输入账号密码",
+                "退出登录" + (this.loginModeNative
+                        ? "（SillyTavern 账号）" : "（Basic Auth / 无密码）"),
                 this.openExternal
                         ? "站外链接：用浏览器打开（点击改为应用内）"
                         : "站外链接：应用内打开（点击改为用浏览器）",
                 "登录域名：" + this.loginHosts.size() + " 个（点击管理）",
                 "已信任的明文地址：" + this.trustedHttpOrigins.size() + " 个（点击管理）",
-                "jsDelivr 加速：" + jsdAccelLabel() + "（点击设置）",
-                "更新渠道：" + UpdateManager.channelLabel(
-                        UpdateManager.channelOf(this.prefs)) + "（点击切换）",
-                "检查更新（当前 " + BuildConfig.VERSION_NAME + "）"
+                "jsDelivr 加速：" + jsdAccelLabel() + "（点击设置）"
         };
         new AlertDialog.Builder(this)
-                .setTitle("网络与账号")
+                .setTitle("网络与账号设置")
                 .setItems(items, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialogInterface, int i) {
@@ -2706,22 +2702,25 @@ public class MainActivity extends Activity {
     private void onNetworkAccountSelected(int i) {
         switch (i) {
             case 0:
-                toggleOpenExternal();
+                showServerDialog();
                 return;
             case 1:
-                showLoginHostDialog();
+                showAuthDialog(false);
                 return;
             case 2:
-                showTrustedHttpDialog();
+                confirmLogout();
                 return;
             case 3:
-                showJsdAccelDialog();
+                toggleOpenExternal();
                 return;
             case 4:
-                showUpdateChannelDialog();
+                showLoginHostDialog();
                 return;
             case 5:
-                checkUpdates();
+                showTrustedHttpDialog();
+                return;
+            case 6:
+                showJsdAccelDialog();
                 return;
             default:
         }

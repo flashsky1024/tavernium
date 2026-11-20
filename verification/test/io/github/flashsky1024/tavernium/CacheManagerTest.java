@@ -1195,14 +1195,19 @@ public class CacheManagerTest {
                 src.contains("private int addLoginHost(String raw)")
                         && src.contains("putStringSet(PREF_LOGIN_HOSTS"));
         check("内置 Discord", src.contains("\"discord.com\""));
-        check("菜单索引对齐：网络账号里登录域名是第 2 项",
-                src.contains("case 1:\n                showLoginHostDialog();")
-                        && src.contains("case 5:\n                checkUpdates();"));
-        check("高级设置拆出网络与显示两个子页",
+        check("菜单索引对齐：登录域名在网络账号第 5 项",
+                src.contains("case 4:\n                showLoginHostDialog();"));
+        check("服务器与账号入口都在网络账号页",
                 src.contains("private void showNetworkAccountMenu()")
-                        && src.contains("private void showDisplayMenu()"));
-        check("顶层仍直达调试与诊断",
-                src.contains("case 4:\n                showDebugMenu();"));
+                        && src.contains("case 0:\n                showServerDialog();")
+                        && src.contains("case 2:\n                confirmLogout();"));
+        check("网络与显示提到主菜单，不再经高级设置",
+                src.contains("\"网络与账号设置…\"")
+                        && src.contains("\"显示设置…\"")
+                        && !src.contains("private void showAdvancedMenu()"));
+        check("更新渠道收进更新页",
+                src.contains("private void showUpdateDebugMenu()")
+                        && src.contains("case 1:\n                checkUpdates();"));
         check("站外链接可在应用内打开",
                 src.contains("PREF_OPEN_EXTERNAL")
                         && src.contains("external navigation stays inside (setting off)"));
@@ -1215,11 +1220,19 @@ public class CacheManagerTest {
         check("二级菜单存在", src.contains("private void showDebugMenu()"));
         check("二级菜单有独立分发", src.contains("private void onDebugMenuItemSelected(int i)"));
         int a = src.indexOf("private void showMenuDialog()");
-        int b = src.indexOf("private void onMenuItemSelected(int i)");
+        int b = src.indexOf("private void onMainMenuSelected(int i)");
         String mainMenu = a >= 0 && b > a ? src.substring(a, b) : "";
+        check("主菜单片段能取到（方法名对齐）", mainMenu.length() > 0);
         check("主菜单不含诊断/日志/网络项",
                 !mainMenu.contains("性能监控") && !mainMenu.contains("导出性能日志")
                         && !mainMenu.contains("清空不可达域名") && !mainMenu.contains("查看性能报告"));
+        // 服务器与账号改由「网络与账号」承载，主菜单不再直接列出，避免两项重复出现。
+        check("主菜单不再直接放服务器/账号项",
+                !mainMenu.contains("修改服务器地址") && !mainMenu.contains("退出登录"));
+        check("主菜单三个设置入口齐全",
+                mainMenu.contains("\"网络与账号设置…\"")
+                        && mainMenu.contains("\"显示设置…\"")
+                        && mainMenu.contains("\"更新、调试与其他设置…\""));
         check("取消改为按钮而非列表项", src.contains(".setNegativeButton(\"取消\", null)"));
         check("导出日志文件名使用 Tavernium 前缀",
                 src.contains("\"tavernium-perf-\"") && !src.contains("\"tavernkeep-perf-\""));

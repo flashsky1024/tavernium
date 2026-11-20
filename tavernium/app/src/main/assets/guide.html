@@ -47,24 +47,24 @@
 
 <h2>打开菜单</h2>
 <p>任意页面按<strong>系统返回键</strong>，或从屏幕左/右边缘向内滑，菜单直接弹出。网页后退在菜单第一项「返回上一级」。</p>
-<div class="hint">Tavernium 没有独立的设置页，服务器、挂机、通知、更新、日志都在这个菜单里。</div>
+<div class="hint">Tavernium 没有独立的设置页，都在主菜单里分三块：「网络与账号设置」管服务器与登录，「显示设置」管帧率与状态栏，「更新、调试与其他设置」管更新、缓存、通知和日志。</div>
 
 <h2>常用功能</h2>
 <div class="card">
-  <div class="kv"><span>修改服务器</span><span>主菜单「修改服务器地址」。局域网可用 <code>http://192.168.x.x:8000</code>，公网需 <code>https://</code>。</span></div>
+  <div class="kv"><span>修改服务器</span><span>「网络与账号设置 → 修改服务器地址」。局域网可用 <code>http://192.168.x.x:8000</code>，公网需 <code>https://</code>。</span></div>
   <div class="kv"><span>后台保活</span><span>保持「后台暂停网页」为关；再到系统设置允许 Tavernium 后台活动。</span></div>
   <div class="kv"><span>挂机防烧屏</span><span>主菜单「挂机模式」，进入黑屏省电状态，触摸或上滑唤醒。</span></div>
-  <div class="kv"><span>回复通知</span><span>主菜单「回复完成通知」。首次开启需允许系统通知权限。</span></div>
+  <div class="kv"><span>回复通知</span><span>「更新、调试与其他设置 → 回复完成通知」。首次开启需允许系统通知权限。</span></div>
   <div class="kv"><span>第三方登录</span><span>Discord 等常见登录页会自动留在应用内。自建 SSO 的域名需在「网络与账号 → 登录域名」手动添加。</span></div>
-  <div class="kv"><span>检查更新</span><span>主菜单「检查更新」。正式版与调试版是独立应用，可同时安装。</span></div>
+  <div class="kv"><span>检查更新</span><span>「更新、调试与其他设置 → 检查更新」。正式版与调试版是独立应用，可同时安装。</span></div>
 </div>
 
 <h2>反馈问题：导出日志</h2>
 <ol class="steps">
-  <li><b>打开主菜单</b>，点「调试与诊断…」。</li>
+  <li><b>打开主菜单</b>，进「更新、调试与其他设置」，再点「调试与诊断…」。</li>
   <li><b>把「性能监控」和「详细日志」都打开</b>，状态显示“开”。</li>
   <li><b>彻底退出应用再重开</b>，按原来的步骤复现问题，例如打开某个角色、发送图片、切换页面。</li>
-  <li><b>回到菜单 → 调试与诊断 → 导出日志</b>。文件通常出现在 <code>下载/SillyTavern/</code>，<code>tavernium-perf-</code> 开头的是运行日志，<code>tavernium-crash-</code> 开头的是崩溃记录。</li>
+  <li><b>回到菜单 → 更新、调试与其他设置 → 调试与诊断 → 导出日志</b>。会在 <code>下载/SillyTavern/</code> 生成一个 <code>tavernium-logs-</code> 开头的 zip，里面是运行日志（含轮转历史）、最近的崩溃记录和一份写明版本机型的说明，直接整个发出来即可。</li>
 </ol>
 <div class="hint">如果应用根本打不开：连续两次启动失败后会自动进入安全模式，弹窗里会给出崩溃文件的位置；也可以用文件管理器进入 <code>Android/data/io.github.flashsky1024.tavernium/files/perf/</code> 取走 <code>crash-</code> 文件。</div>
 <div class="hint">把日志文件和以下信息一起发：手机型号、系统版本、Android System WebView 版本、问题发生时间和现象。</div>
